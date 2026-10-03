@@ -1,6 +1,6 @@
 # Transport Manager — De Vreugd Transport
 
-Versie 2 (2.0.0) · Node.js 22 · SQLite (`node:sqlite`) · Docker / Portainer
+Versie 3 (3.0.0) · Node.js 22 · SQLite (`node:sqlite`) · Docker / Portainer
 
 Huisstijl, inloggen en beheer zijn gelijk aan **WorkPortal** (De Vreugd
 Productietechniek), met "Transport" in het logo en zonder payoff.
@@ -25,8 +25,8 @@ TransportManager-App\
 ├── 1 Info\
 ├── 2 Oude versie's\
 ├── TransportManager\              <- hostmap = git-kopie van GitHub (niet zelf in werken)
-├── transportmanager-app-V2.zip
-└── transportmanager-app-V2\       <- uitgepakte zip (bestanden staan direct in de root)
+├── transportmanager-app-V3.zip
+└── transportmanager-app-V3\       <- uitgepakte zip (bestanden staan direct in de root)
     ├── publiceren.cmd             <- naar GitHub publiceren
     ├── Dockerfile
     ├── docker-compose.yml         <- stack voor Portainer
@@ -193,6 +193,14 @@ alle rechten. Wie de rol Chauffeur heeft, kan aan ritten worden gekoppeld.
 | Relaties (klanten & tarieven) | Beheer | Beheer | Bewerken | Geen |
 | Chauffeurs & uren | Bewerken | Beheer | Bewerken | Geen |
 | Beheer (gebruikers, rechten & back-ups) | Beheer | Beheer | Geen | Geen |
+
+**Gebruiker verwijderen** (Beheer → Gebruikers → gebruiker → *Gebruiker
+verwijderen*, recht Beheer op de module Beheer): de gebruiker verdwijnt uit
+Beheer en de keuzelijsten, wordt overal afgemeld en het e-mailadres is weer
+vrij voor een nieuw account. Op de achtergrond blijft de naam bewaard, zodat
+ritten, uren, incidenten en het logboek gewoon blijven kloppen. Jezelf
+verwijderen kan niet; een beheerder kan alleen door een beheerder worden
+verwijderd. Tijdelijk blokkeren = vinkje *Actief* uitzetten.
 
 Aan te passen in **Beheer → Rechten per functierol**. Beheer heeft verder
 de tabbladen Gebruikers (met apparaten afmelden), Instellingen (verifiëren,

@@ -76,7 +76,7 @@ function pagGebruikers(url) {
   const gebruikers = db
     .prepare(
       `SELECT g.*, (SELECT COUNT(*) FROM apparaten a WHERE a.gebruiker_id = g.id) AS n_apparaten
-       FROM gebruikers g ORDER BY g.actief DESC, g.naam`
+       FROM gebruikers g WHERE g.verwijderd = 0 ORDER BY g.actief DESC, g.naam`
     )
     .all();
   const rollenPer = {};
@@ -161,7 +161,19 @@ ${
       .join('') || '<div class="empty">Geen apparaten.</div>'
   }</div>
   <form method="post" action="/beheer/gebruiker/${e(u.id)}/apparaten-afmelden" data-confirm="Alle apparaten van deze gebruiker afmelden?" style="margin-top:12px"><button class="btn danger sm">Alle apparaten afmelden (pincode vergeten / telefoon kwijt)</button></form>
+</section>
+${
+  u.id !== ik.id && kan(ik, 'beheer', BEHEER) && (!u.is_beheerder || ik.is_beheerder)
+    ? `<section class="card" style="max-width:900px">
+  <h2>Gebruiker verwijderen</h2>
+  <p class="muted">De gebruiker verdwijnt uit Beheer en uit de keuzelijsten, kan niet meer inloggen en het e-mailadres ${e(u.email)} is daarna weer vrij voor een nieuw account.
+  Op de achtergrond blijft de naam bewaard, zodat ritten, uren en incidenten van deze persoon gewoon zichtbaar blijven.</p>
+  <form method="post" action="/beheer/gebruiker/${e(u.id)}/verwijderen" data-confirm="${e(u.naam)} verwijderen? Dit kan niet ongedaan worden gemaakt (je kunt wel een nieuw account aanmaken met hetzelfde e-mailadres).">
+    <button class="btn danger">${icoon('trash')}Gebruiker verwijderen</button>
+  </form>
 </section>`
+    : ''
+}`
     : ''
 }`;
 }
@@ -207,6 +219,23 @@ async function slaGebruikerOp(v, ik, bestaandId) {
   logActie(ik, bestaand ? 'Gebruiker opgeslagen' : 'Gebruiker aangemaakt', 'gebruiker', id, `${naam} <${email}>`);
   if (!bestaand && v.welkom === '1') await stuurWelkomstmail({ naam, email });
   return { id };
+}
+
+/**
+ * Verwijdert een gebruiker "zacht": niet meer zichtbaar, niet meer in te loggen
+ * en het e-mailadres weer vrij — maar de rij blijft bestaan, zodat ritten, uren,
+ * incidenten en het logboek de naam blijven tonen.
+ */
+export function verwijderGebruiker(u, door) {
+  meldAlleApparatenAf(u.id);
+  db.prepare('DELETE FROM login_codes WHERE gebruiker_id = ?').run(u.id);
+  db.prepare('DELETE FROM push_abonnementen WHERE gebruiker_id = ?').run(u.id);
+  db.prepare('DELETE FROM gebruiker_rechten WHERE gebruiker_id = ?').run(u.id);
+  db.prepare(
+    `UPDATE gebruikers SET verwijderd = 1, actief = 0, is_beheerder = 0, verwijderd_op = ?, verwijderd_email = email, email = ?
+     WHERE id = ?`
+  ).run(new Date().toISOString(), `verwijderd-${u.id}@verwijderd.invalid`, u.id);
+  logActie(door, 'Gebruiker verwijderd', 'gebruiker', u.id, `${u.naam} <${u.email}>`);
 }
 
 // ---------------------------------------------------------------- rechten
@@ -427,7 +456,7 @@ function pagZoeken(gebruiker, q) {
     }
     if (kan(gebruiker, 'chauffeurs')) {
       const mensen = db
-        .prepare(`SELECT * FROM gebruikers WHERE rol = 'chauffeur' AND (lower(naam) LIKE ? OR lower(email) LIKE ?) ORDER BY naam LIMIT 25`)
+        .prepare(`SELECT * FROM gebruikers WHERE rol = 'chauffeur' AND verwijderd = 0 AND (lower(naam) LIKE ? OR lower(email) LIKE ?) ORDER BY naam LIMIT 25`)
         .all(term, term);
       groepen.push(['Chauffeurs', 'stuur', mensen.map((c) => [`/planner/chauffeurs/${c.id}/uren`, c.naam, c.email])]);
     }
@@ -484,7 +513,7 @@ export async function behandelBeheer(req, res, url, gebruiker, h) {
   const gebruikerMatch = pathname.match(/^\/beheer\/gebruiker(?:\/([^/]+))?$/);
   if (gebruikerMatch) {
     const id = gebruikerMatch[1];
-    const u = id ? db.prepare('SELECT * FROM gebruikers WHERE id = ?').get(id) : { actief: 1 };
+    const u = id ? db.prepare('SELECT * FROM gebruikers WHERE id = ? AND verwijderd = 0').get(id) : { actief: 1 };
     if (!u) return h.redirect(res, '/beheer/gebruikers'), true;
     if (methode === 'GET') return toon('Gebruiker', 'beheer', pagGebruiker({ u, ik: gebruiker, url })), true;
     if (methode === 'POST') {
@@ -496,6 +525,20 @@ export async function behandelBeheer(req, res, url, gebruiker, h) {
       }
       return h.redirect(res, '/beheer/gebruikers?ok=' + encodeURIComponent('Gebruiker opgeslagen.')), true;
     }
+  }
+
+  const verwijderMatch = pathname.match(/^\/beheer\/gebruiker\/([^/]+)\/verwijderen$/);
+  if (verwijderMatch && methode === 'POST') {
+    const u = db.prepare('SELECT * FROM gebruikers WHERE id = ? AND verwijderd = 0').get(verwijderMatch[1]);
+    if (!u) return h.redirect(res, '/beheer/gebruikers'), true;
+    if (u.id === gebruiker.id) {
+      return h.redirect(res, `/beheer/gebruiker/${u.id}?fout=` + encodeURIComponent('Je kunt jezelf niet verwijderen.')), true;
+    }
+    if (u.is_beheerder && !gebruiker.is_beheerder) {
+      return h.redirect(res, `/beheer/gebruiker/${u.id}?fout=` + encodeURIComponent('Alleen een beheerder kan een beheerder verwijderen.')), true;
+    }
+    verwijderGebruiker(u, gebruiker);
+    return h.redirect(res, '/beheer/gebruikers?ok=' + encodeURIComponent(`${u.naam} is verwijderd. Het e-mailadres ${u.email} is weer beschikbaar.`)), true;
   }
 
   const afmeldenMatch = pathname.match(/^\/beheer\/gebruiker\/([^/]+)\/apparaten-afmelden$/);

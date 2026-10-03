@@ -1645,7 +1645,7 @@ const server = http.createServer(async (req, res) => {
       const laadFormulierData = () => ({
         klanten: db.prepare('SELECT * FROM klanten ORDER BY naam').all(),
         voertuigen: db.prepare('SELECT * FROM voertuigen WHERE actief = 1 ORDER BY kenteken').all(),
-        chauffeurs: db.prepare("SELECT * FROM gebruikers WHERE rol = 'chauffeur' AND actief = 1 ORDER BY naam").all(),
+        chauffeurs: db.prepare("SELECT * FROM gebruikers WHERE rol = 'chauffeur' AND actief = 1 AND verwijderd = 0 ORDER BY naam").all(),
         toltarieven: haalToltarieven({ alleenActief: true }),
         margePercentage: haalInstellingen().marge_percentage,
         routeBerekeningActief: routeBerekeningActief(),
@@ -1779,7 +1779,7 @@ const server = http.createServer(async (req, res) => {
       const laadSjabloonFormulierData = () => ({
         klanten: db.prepare('SELECT * FROM klanten ORDER BY naam').all(),
         voertuigen: db.prepare('SELECT * FROM voertuigen WHERE actief = 1 ORDER BY kenteken').all(),
-        chauffeurs: db.prepare("SELECT * FROM gebruikers WHERE rol = 'chauffeur' AND actief = 1 ORDER BY naam").all(),
+        chauffeurs: db.prepare("SELECT * FROM gebruikers WHERE rol = 'chauffeur' AND actief = 1 AND verwijderd = 0 ORDER BY naam").all(),
       });
 
       if (pathname === '/planner/sjablonen' && methode === 'GET') {
@@ -2237,13 +2237,13 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (pathname === '/planner/chauffeurs' && methode === 'GET') {
-        const chauffeurs = db.prepare("SELECT * FROM gebruikers WHERE rol = 'chauffeur' ORDER BY naam").all();
+        const chauffeurs = db.prepare("SELECT * FROM gebruikers WHERE rol = 'chauffeur' AND verwijderd = 0 ORDER BY naam").all();
         return stuurHtml(res, 200, layout({ titel: 'Chauffeurs', actief: 'chauffeurs', gebruiker, inhoud: pagChauffeurs({ chauffeurs }) }));
       }
 
       if (methode === 'POST' && pathname === '/planner/chauffeurs/nieuw') {
         const v = await leesFormulier(req);
-        const chauffeurs = db.prepare("SELECT * FROM gebruikers WHERE rol = 'chauffeur' ORDER BY naam").all();
+        const chauffeurs = db.prepare("SELECT * FROM gebruikers WHERE rol = 'chauffeur' AND verwijderd = 0 ORDER BY naam").all();
         if (!v.naam || !v.email) {
           return stuurHtml(res, 400, layout({ titel: 'Chauffeurs', actief: 'chauffeurs', gebruiker, inhoud: pagChauffeurs({ chauffeurs, fout: 'Naam en e-mailadres zijn verplicht.' }) }));
         }
@@ -2263,7 +2263,7 @@ const server = http.createServer(async (req, res) => {
           synchroniseerRolKolom(id);
           logActie(gebruiker, 'Gebruiker aangemaakt', 'gebruiker', id, `${nieuw.naam} <${nieuw.email}> (chauffeur)`);
           await stuurWelkomstmail(nieuw);
-          const bijgewerkteChauffeurs = db.prepare("SELECT * FROM gebruikers WHERE rol = 'chauffeur' ORDER BY naam").all();
+          const bijgewerkteChauffeurs = db.prepare("SELECT * FROM gebruikers WHERE rol = 'chauffeur' AND verwijderd = 0 ORDER BY naam").all();
           return stuurHtml(
             res,
             200,
@@ -2281,7 +2281,7 @@ const server = http.createServer(async (req, res) => {
 
       const chauffeurDeactiverenMatch = pathname.match(/^\/planner\/chauffeurs\/([^/]+)\/deactiveren$/);
       if (chauffeurDeactiverenMatch && methode === 'POST') {
-        const c = db.prepare('SELECT * FROM gebruikers WHERE id = ?').get(chauffeurDeactiverenMatch[1]);
+        const c = db.prepare('SELECT * FROM gebruikers WHERE id = ? AND verwijderd = 0').get(chauffeurDeactiverenMatch[1]);
         if (c && c.id !== gebruiker.id) {
           db.prepare('UPDATE gebruikers SET actief = ? WHERE id = ?').run(c.actief ? 0 : 1, c.id);
           if (c.actief) meldAlleApparatenAf(c.id); // inactief = direct van al zijn apparaten afgemeld
@@ -2293,8 +2293,8 @@ const server = http.createServer(async (req, res) => {
       // Pincode vergeten / telefoon kwijt: alle apparaten van de chauffeur afmelden.
       const chauffeurAfmeldenMatch = pathname.match(/^\/planner\/chauffeurs\/([^/]+)\/apparaten-afmelden$/);
       if (chauffeurAfmeldenMatch && methode === 'POST') {
-        const c = db.prepare('SELECT * FROM gebruikers WHERE id = ?').get(chauffeurAfmeldenMatch[1]);
-        const chauffeurs = db.prepare("SELECT * FROM gebruikers WHERE rol = 'chauffeur' ORDER BY naam").all();
+        const c = db.prepare('SELECT * FROM gebruikers WHERE id = ? AND verwijderd = 0').get(chauffeurAfmeldenMatch[1]);
+        const chauffeurs = db.prepare("SELECT * FROM gebruikers WHERE rol = 'chauffeur' AND verwijderd = 0 ORDER BY naam").all();
         if (!c || c.rol !== 'chauffeur') {
           return stuurHtml(res, 404, layout({ titel: 'Chauffeurs', actief: 'chauffeurs', gebruiker, inhoud: pagChauffeurs({ chauffeurs, fout: 'Chauffeur niet gevonden.' }) }));
         }

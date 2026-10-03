@@ -610,6 +610,12 @@ CREATE INDEX IF NOT EXISTS idx_logboek_tijd ON logboek(aangemaakt_op);
 `);
 voegKolomToeIndienNodig('gebruikers', 'is_beheerder', 'INTEGER NOT NULL DEFAULT 0');
 voegKolomToeIndienNodig('gebruikers', 'laatst_ingelogd', 'TEXT');
+// Verwijderde gebruikers blijven op de achtergrond bestaan (voor ritten, uren en
+// incidenten), maar zijn onzichtbaar in Beheer en keuzelijsten en hun e-mailadres
+// is weer vrij.
+voegKolomToeIndienNodig('gebruikers', 'verwijderd', 'INTEGER NOT NULL DEFAULT 0');
+voegKolomToeIndienNodig('gebruikers', 'verwijderd_op', 'TEXT');
+voegKolomToeIndienNodig('gebruikers', 'verwijderd_email', 'TEXT');
 voegKolomToeIndienNodig('sessies', 'apparaat_id', 'INTEGER');
 voegKolomToeIndienNodig('sessies', 'ontgrendeld_op', 'TEXT');
 
