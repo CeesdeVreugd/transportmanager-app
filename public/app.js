@@ -1,3 +1,14 @@
+// Zoals WorkPortal: klikbare tabelregels (tr[data-href]) en bevestigen via
+// data-confirm op een formulier.
+document.addEventListener('click', (e) => {
+  const tr = e.target.closest('tr[data-href]');
+  if (tr && !e.target.closest('a,button,input,select,label,td.chk')) window.location = tr.getAttribute('data-href');
+});
+document.addEventListener('submit', (e) => {
+  const msg = e.target.getAttribute('data-confirm');
+  if (msg && !window.confirm(msg)) e.preventDefault();
+});
+
 // Menu-dropdowns (details/summary in de topbalk) altijd sluiten zodra je
 // ergens op klikt binnen het menu (een link naar een pagina) of daarbuiten -
 // zonder dit bleven ze op sommige pagina's/apparaten openstaan.
@@ -226,7 +237,7 @@ function initHandtekeningCanvas() {
   const canvas = document.querySelector('[data-handtekening-canvas]');
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
-  ctx.strokeStyle = '#0f4c81';
+  ctx.strokeStyle = '#0A0A96';
   ctx.lineWidth = 2;
   ctx.lineCap = 'round';
   let tekenen = false;

@@ -1,6 +1,6 @@
 {
   "name": "transportmanager-app",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "description": "Transport Manager — planning- en ritbeheer-app voor De Vreugd Transport (Docker/Portainer).",

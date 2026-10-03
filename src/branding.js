@@ -1,13 +1,17 @@
-// Huisstijl-instellingen. Pas dit bestand aan zodra de bedrijfsnaam, kleuren
-// en (optioneel) een logo bekend zijn - de rest van de app leest alles hiervandaan.
+// Huisstijl — gelijk aan WorkPortal (De Vreugd Productietechniek), met
+// "Transport" in het logo. Kleuren staan als variabelen bovenaan public/styles.css.
 export const branding = {
   bedrijfsnaam: 'De Vreugd Transport',
-  kleurPrimair: '#0A0A96', // "Basic" uit het kleuroverzicht
-  kleurPrimairDonker: '#080871', // iets donkerdere tint voor hover/actieve staat
-  kleurAccent: '#0080FF', // "Accent" uit het kleuroverzicht
+  appNaam: 'TransportManager - DVT', // naam van de app (beginscherm, tabblad)
+  appNaamKort: 'TransportManager',
+  appLabel: 'TRANSPORTMANAGER', // label onder het logo, zoals "WORKPORTAL"
+  kleurPrimair: '#0A0A96', // --basic
+  kleurPrimairDonker: '#07076E', // --basic-dark
+  kleurAccent: '#0080FF', // --accent
   kleurTekstOpPrimair: '#ffffff',
-  logoUrl: '/logo.png',
-  lettertype: "'Ubuntu', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+  logoUrl: '/img/logo.png',
+  logoWitUrl: '/img/logo-wit.png',
+  lettertype: "'Ubuntu', system-ui, -apple-system, 'Segoe UI', sans-serif",
 };
 
 export default branding;

@@ -11,13 +11,22 @@ services:
     mem_limit: ${TM_MEM_LIMIT:-1g}
     memswap_limit: ${TM_MEM_LIMIT:-1g}
     environment:
+      APP_URL: ${APP_URL:-}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_NAME: ${ADMIN_NAME:-Beheerder}
+      SECRET_KEY: ${SECRET_KEY:-}
+      # E-mail (inlogcodes, welkomstmail, klant-e-mails) via app-registratie in Microsoft Entra ID (Graph, Mail.Send)
+      GRAPH_TENANT_ID: ${GRAPH_TENANT_ID:-}
+      GRAPH_CLIENT_ID: ${GRAPH_CLIENT_ID:-}
+      GRAPH_CLIENT_SECRET: ${GRAPH_CLIENT_SECRET:-}
+      MAIL_FROM: ${MAIL_FROM:-}
       # Pushmeldingen naar chauffeurs (neem de sleutels over uit de oude omgeving!)
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_CONTACT_EMAIL: ${VAPID_CONTACT_EMAIL:-}
       # Automatische routeberekening, kaart en volgorde-optimalisatie (OpenRouteService)
       ORS_API_KEY: ${ORS_API_KEY:-}
-      # Klant-e-mails bij "onderweg" / "afgerond" (Resend)
+      # Alternatief voor mail als GRAPH_* leeg is (Resend)
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       RESEND_AFZENDER: ${RESEND_AFZENDER:-}
       # Back-ups ook naar OneDrive

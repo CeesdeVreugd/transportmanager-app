@@ -292,6 +292,7 @@ export function pagBackups({
   herstelGestart = false,
   ophaalStatus = null,
   ontbrekendeBestanden = 0,
+  tabs = '',
 }) {
   const rijen = backups.length
     ? backups
@@ -326,7 +327,7 @@ export function pagBackups({
       <li>Na aanmaken: ga naar "Verificatie" (Authentication) → zet "Sta openbare clientstromen toe" (Allow public client flows) op <strong>Ja</strong> → opslaan.</li>
       <li>Ga naar "API-machtigingen" → voeg Microsoft Graph-machtiging <span class="mono">Files.ReadWrite</span> en <span class="mono">offline_access</span> toe (delegated).</li>
       <li>Kopieer de "Toepassings-id (client)" (Application/client ID) van de overzichtspagina.</li>
-      <li>Zet in Portainer (stack "transportmanager" → Environment variables) <span class="mono">ONEDRIVE_CLIENT_ID</span> met die waarde, en klik op "Update the stack".</li>
+      <li>Zet in Portainer (stack "transportmanager-app" → Environment variables) <span class="mono">ONEDRIVE_CLIENT_ID</span> met die waarde, en klik op "Update the stack".</li>
     </ol>
     <p class="rit-meta">Er is geen client secret of technische kennis verder nodig — na deze stap verschijnt hier een knop om te koppelen.</p>
   </div>`
@@ -347,12 +348,12 @@ export function pagBackups({
   </div>`;
 
   return `
-<div class="paginakop">
-  <h1>Back-ups</h1>
-  <form method="post" action="/planner/backups/nu" class="inline-form">
-    <button type="submit" class="knop knop-primair">Nu back-uppen</button>
-  </form>
+<div class="pagehead"><div><h1>Beheer</h1><p>Back-ups van de database</p></div>
+  <div class="actions"><form method="post" action="/planner/backups/nu" class="inline-form">
+    <button type="submit" class="btn primary">Nu back-uppen</button>
+  </form></div>
 </div>
+${tabs}
 <p class="rit-meta">De app maakt automatisch elke 24 uur een back-up van de volledige database, en bewaart de 14 meest recente. Download een back-up hier om die veilig op een andere plek te bewaren.</p>
 ${succes ? `<div class="melding melding-succes">Gelukt.</div>` : ''}
 ${fout ? `<div class="melding melding-fout">${escapeHtml(fout)}</div>` : ''}
@@ -702,8 +703,8 @@ export function pagChauffeurs({ chauffeurs, fout, nieuweInloggegevens, nieuwWach
       <td>${c.actief ? 'Actief' : 'Inactief'}</td>
       <td class="knoppenrij">
         <a href="/planner/chauffeurs/${c.id}/uren" class="knop knop-klein">Uren</a>
-        <form method="post" action="/planner/chauffeurs/${c.id}/wachtwoord-resetten" class="inline-form" onsubmit="return confirm('Nieuw tijdelijk wachtwoord instellen voor ${escapeHtml(c.naam)}? Het huidige wachtwoord werkt dan niet meer.')">
-          <button type="submit" class="knop knop-klein">Wachtwoord resetten</button>
+        <form method="post" action="/planner/chauffeurs/${c.id}/apparaten-afmelden" class="inline-form" onsubmit="return confirm('Alle apparaten van ${escapeHtml(c.naam)} afmelden? De chauffeur logt daarna opnieuw in met een e-mailcode en kiest een nieuwe pincode.')">
+          <button type="submit" class="knop knop-klein">Apparaten afmelden</button>
         </form>
         <form method="post" action="/planner/chauffeurs/${c.id}/deactiveren" class="inline-form" onsubmit="return confirm('${c.actief ? 'Chauffeur deactiveren' : 'Chauffeur activeren'}?')">
           <button type="submit" class="knop knop-klein">${c.actief ? 'Deactiveren' : 'Activeren'}</button>
@@ -715,20 +716,17 @@ export function pagChauffeurs({ chauffeurs, fout, nieuweInloggegevens, nieuwWach
     : `<tr><td colspan="4" class="leeg">Nog geen chauffeurs toegevoegd.</td></tr>`;
 
   return `
-<h1>Chauffeurs</h1>
+<div class="pagehead"><div><h1>Chauffeurs</h1><p>Chauffeurs zijn gebruikers met de functierol Chauffeur. Rollen en rechten beheer je in <a href="/beheer/gebruikers">Beheer</a>.</p></div></div>
 ${fout ? `<div class="melding melding-fout">${escapeHtml(fout)}</div>` : ''}
 ${
   nieuweInloggegevens
-    ? `<div class="melding melding-succes">Account aangemaakt voor ${escapeHtml(nieuweInloggegevens.naam)}.<br>
-       Inloggegevens: <strong>${escapeHtml(nieuweInloggegevens.email)}</strong> / <strong>${escapeHtml(nieuweInloggegevens.wachtwoord)}</strong><br>
-       Geef dit wachtwoord door aan de chauffeur — het wordt hierna niet meer getoond.</div>`
+    ? `<div class="melding melding-succes">Account aangemaakt voor ${escapeHtml(nieuweInloggegevens.naam)} (${escapeHtml(nieuweInloggegevens.email)}).<br>
+       Er is een welkomstmail verstuurd. De chauffeur logt in met dit e-mailadres: een code per mail en daarna een eigen pincode.</div>`
     : ''
 }
 ${
   nieuwWachtwoordVoor
-    ? `<div class="melding melding-succes">Nieuw tijdelijk wachtwoord ingesteld voor ${escapeHtml(nieuwWachtwoordVoor.naam)}.<br>
-       Inloggegevens: <strong>${escapeHtml(nieuwWachtwoordVoor.email)}</strong> / <strong>${escapeHtml(nieuwWachtwoordVoor.wachtwoord)}</strong><br>
-       Geef dit wachtwoord door aan de chauffeur — het wordt hierna niet meer getoond. De chauffeur kan het daarna zelf wijzigen via "Wachtwoord" in de app.</div>`
+    ? `<div class="melding melding-succes">Alle apparaten van ${escapeHtml(nieuwWachtwoordVoor.naam)} zijn afgemeld. Bij de volgende keer inloggen krijgt de chauffeur een e-mailcode (${escapeHtml(nieuwWachtwoordVoor.email)}) en kiest een nieuwe pincode.</div>`
     : ''
 }
 <div class="kaart">
@@ -1706,7 +1704,7 @@ ${succes ? `<div class="melding melding-succes">Opgeslagen.</div>` : ''}
     routeBerekeningActief
       ? `<p style="margin:0;">✓ Actief — bij het inplannen van een rit kan de afstand automatisch berekend worden.</p>`
       : `<p style="margin:0 0 0.5rem;">Nog niet ingesteld. De kilometers per rit vul je nu zelf in, wat prima werkt. Wil je dit automatiseren?</p>
-         <p class="rit-meta" style="margin:0;">Maak gratis een account op <strong>openrouteservice.org</strong>, vraag een API-sleutel aan, en zet die als omgevingsvariabele <span class="mono">ORS_API_KEY</span> bij je hosting-omgeving (Portainer → Stacks → transportmanager → Environment variables, daarna "Update the stack").</p>`
+         <p class="rit-meta" style="margin:0;">Maak gratis een account op <strong>openrouteservice.org</strong>, vraag een API-sleutel aan, en zet die als omgevingsvariabele <span class="mono">ORS_API_KEY</span> bij je hosting-omgeving (Portainer → Stacks → transportmanager-app → Environment variables, daarna "Update the stack").</p>`
   }
 </div>
 
@@ -1716,7 +1714,7 @@ ${succes ? `<div class="melding melding-succes">Opgeslagen.</div>` : ''}
     emailNotificatiesActief
       ? `<p style="margin:0;">✓ Actief — klanten met een e-mailadres krijgen automatisch bericht als hun rit "onderweg" is of is afgeleverd.</p>`
       : `<p style="margin:0 0 0.5rem;">Nog niet ingesteld. Klanten krijgen nu geen automatisch bericht.</p>
-         <p class="rit-meta" style="margin:0;">Maak gratis een account op <strong>resend.com</strong>, vraag een API-sleutel aan, en zet die als omgevingsvariabele <span class="mono">RESEND_API_KEY</span> bij je hosting-omgeving (Portainer → Stacks → transportmanager → Environment variables, daarna "Update the stack"). Optioneel: <span class="mono">RESEND_AFZENDER</span> voor een eigen afzenderadres.</p>`
+         <p class="rit-meta" style="margin:0;">Maak gratis een account op <strong>resend.com</strong>, vraag een API-sleutel aan, en zet die als omgevingsvariabele <span class="mono">RESEND_API_KEY</span> bij je hosting-omgeving (Portainer → Stacks → transportmanager-app → Environment variables, daarna "Update the stack"). Optioneel: <span class="mono">RESEND_AFZENDER</span> voor een eigen afzenderadres.</p>`
   }
 </div>`;
 }
@@ -2034,20 +2032,20 @@ function renderTrendChart(periodes) {
       const groepX = padLinks + i * groepBreedte + groepBreedte / 2;
       const omzetHoogte = (Math.abs(p.omzet) / maxWaarde) * grafiekHoogte;
       const margeHoogte = (Math.abs(p.marge) / maxWaarde) * grafiekHoogte;
-      const margeKleur = p.marge >= 0 ? '#1f9d55' : '#d64545';
+      const margeKleur = p.marge >= 0 ? '#0080FF' : '#9B1C12';
       return `
-      <rect x="${(groepX - barBreedte - 2).toFixed(1)}" y="${(basisY - omzetHoogte).toFixed(1)}" width="${barBreedte.toFixed(1)}" height="${omzetHoogte.toFixed(1)}" fill="#0f4c81" rx="2"></rect>
+      <rect x="${(groepX - barBreedte - 2).toFixed(1)}" y="${(basisY - omzetHoogte).toFixed(1)}" width="${barBreedte.toFixed(1)}" height="${omzetHoogte.toFixed(1)}" fill="#0A0A96" rx="2"></rect>
       <rect x="${(groepX + 2).toFixed(1)}" y="${(p.marge >= 0 ? basisY - margeHoogte : basisY).toFixed(1)}" width="${barBreedte.toFixed(1)}" height="${margeHoogte.toFixed(1)}" fill="${margeKleur}" rx="2"></rect>
-      <text x="${groepX.toFixed(1)}" y="${hoogte - 12}" text-anchor="middle" font-size="10" fill="#5b6b7a">${escapeHtml(p.label)}</text>`;
+      <text x="${groepX.toFixed(1)}" y="${hoogte - 12}" text-anchor="middle" font-size="10" fill="#5A5F80">${escapeHtml(p.label)}</text>`;
     })
     .join('');
 
   return `
 <svg viewBox="0 0 ${breedte} ${hoogte}" width="100%" style="max-width:700px;display:block;" role="img" aria-label="Trend omzet en marge">
-  <line x1="${padLinks}" y1="${basisY}" x2="${breedte - padRechts}" y2="${basisY}" stroke="#dde3e8" stroke-width="1"></line>
+  <line x1="${padLinks}" y1="${basisY}" x2="${breedte - padRechts}" y2="${basisY}" stroke="#E1E5F0" stroke-width="1"></line>
   ${staven}
 </svg>
-<div class="rit-meta"><span style="color:#0f4c81;">■</span> Omzet &nbsp; <span style="color:#1f9d55;">■</span> Marge &nbsp; <span style="color:#d64545;">■</span> Marge (verlies)</div>`;
+<div class="rit-meta"><span style="color:#0A0A96;">■</span> Omzet &nbsp; <span style="color:#0080FF;">■</span> Marge &nbsp; <span style="color:#9B1C12;">■</span> Marge (verlies)</div>`;
 }
 
 export function pagDashboard({

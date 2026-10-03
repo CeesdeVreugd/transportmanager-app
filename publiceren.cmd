@@ -12,7 +12,7 @@ setlocal
 
 set "DOEL=C:\1 Automatiserings projecten\DeVreugdTransport\TransportManager-App\TransportManager"
 set "REPO=https://github.com/CeesdeVreugd/transportmanager-app.git"
-set "OMSCHRIJVING=Transport Manager V1: overgezet naar Docker/Portainer (Dockerfile, stack, /health, overzetten vanaf oude omgeving)"
+set "OMSCHRIJVING=Transport Manager V2: huisstijl, inloggen (e-mailcode + pincode) en beheer (functierollen en rechten) gelijk aan WorkPortal"
 
 echo.
 echo ============================================
@@ -69,7 +69,7 @@ echo ============================================
 echo  Klaar!
 echo ============================================
 echo De VM (via Portainer) haalt deze wijziging nu zelf op.
-echo Ga naar de "transportmanager"-stack in Portainer en klik op
+echo Ga naar de "transportmanager-app"-stack in Portainer en klik op
 echo "Pull and redeploy" (met "Re-pull image and redeploy" aan) om 'm
 echo daadwerkelijk uit te rollen.
 pause

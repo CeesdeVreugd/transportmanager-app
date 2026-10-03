@@ -3,16 +3,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import db, { hashWachtwoord, verifieerWachtwoord, nieuweId, seedIndienLeeg } from './db.js';
-import {
-  maakSessie,
-  verwijderSessie,
-  haalGebruikerViaSessie,
-  parseCookies,
-  sessieCookieHeader,
-  SESSIE_DUUR_LANG_MS,
-} from './auth.js';
-import { layout, loginPagina, chauffeurLoginKiezerPagina, chauffeurLoginCodePagina, escapeHtml } from './render.js';
+import db, { hashWachtwoord, nieuweId, zorgVoorEersteBeheerder } from './db.js';
+import { huidigeGebruiker, behandelInloggen, meldAlleApparatenAf, stuurWelkomstmail, logActie } from './inloggen.js';
+import { kan, vereisteVoorPad, synchroniseerRolKolom } from './rechten.js';
+import { behandelBeheer, beheerTabs } from './beheer.js';
+import { layout, escapeHtml, APP_VERSIE } from './render.js';
 import branding from './branding.js';
 import { berekenAfstandKm, routeBerekeningActief } from './routing.js';
 import { leesMultipart } from './multipart.js';
@@ -50,7 +45,6 @@ import {
   pagWerkdagDetail,
   pagWerkdagNieuw,
   pagTaakDetail,
-  pagInstellingen,
   pagTarieven,
   pagFinancieelOverzicht,
   pagKlantDetail,
@@ -147,10 +141,6 @@ function redirect(res, locatie, extraHeaders = {}) {
   res.end();
 }
 
-function huidigeGebruiker(req) {
-  const cookies = parseCookies(req.headers.cookie);
-  return haalGebruikerViaSessie(cookies.sessie);
-}
 
 function serveerStatischBestand(req, res, pathname) {
   const veiligPad = path.normalize(pathname).replace(/^([./\\])+/, '');
@@ -1522,21 +1512,42 @@ const server = http.createServer(async (req, res) => {
     const { pathname } = url;
     const methode = req.method;
 
-    // Dynamisch manifest, altijd in lijn met de actuele huisstijl.
+    // Beveiligingsheaders (zoals WorkPortal).
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Referrer-Policy', 'same-origin');
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+
+    // Formulieren alleen vanaf de eigen site accepteren (bescherming tegen CSRF).
+    if (methode === 'POST' && req.headers.origin) {
+      const host = req.headers['x-forwarded-host'] || req.headers.host;
+      let herkomst = '';
+      try {
+        herkomst = new URL(req.headers.origin).host;
+      } catch {
+        herkomst = '';
+      }
+      if (herkomst !== host) return stuurHtml(res, 403, 'Verzoek geweigerd.');
+    }
+
+    // Manifest: iOS krijgt het vierkante icoon (anders legt iOS er een glaseffect
+    // over), andere apparaten het ronde icoon — net als WorkPortal.
     if (methode === 'GET' && pathname === '/manifest.webmanifest') {
+      const ios = /iPhone|iPad|iPod/.test(req.headers['user-agent'] || '');
+      const icons = ios
+        ? [180, 192, 512].map((n) => ({ src: `/img/wp-app-${n}.png`, sizes: `${n}x${n}`, type: 'image/png', purpose: 'any' }))
+        : [96, 144, 192, 256, 384, 512].map((n) => ({ src: `/img/wp-round-${n}.png`, sizes: `${n}x${n}`, type: 'image/png', purpose: 'any' }));
       const manifest = {
-        name: branding.bedrijfsnaam,
-        short_name: branding.bedrijfsnaam,
+        name: branding.appNaam,
+        short_name: branding.appNaam,
         start_url: '/',
         display: 'standalone',
-        background_color: '#f4f6f8',
-        theme_color: branding.kleurPrimair,
-        icons: [
-          { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
-          { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
-        ],
+        background_color: '#FFFFFF',
+        theme_color: '#0A0A96',
+        id: '/',
+        scope: '/',
+        icons,
       };
-      res.writeHead(200, { 'Content-Type': 'application/manifest+json' });
+      res.writeHead(200, { 'Content-Type': 'application/manifest+json', Vary: 'User-Agent', 'Cache-Control': 'no-cache' });
       res.end(JSON.stringify(manifest));
       return;
     }
@@ -1549,85 +1560,45 @@ const server = http.createServer(async (req, res) => {
     if (methode === 'GET' && pathname === '/health') {
       db.prepare('SELECT 1').get();
       res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-      res.end('{"status":"ok"}');
+      res.end(JSON.stringify({ status: 'ok', version: APP_VERSIE }));
       return;
     }
 
+    // ---- Inloggen: e-mailcode + pincode per apparaat (zie src/inloggen.js) ----
+    if (await behandelInloggen(req, res, url, { leesFormulier, stuurHtml, redirect })) return;
+
     const gebruiker = huidigeGebruiker(req);
-
-    // ---- Authenticatie ----
-    if (methode === 'GET' && pathname === '/login') {
-      if (gebruiker) return redirect(res, '/chauffeur');
-      return stuurHtml(res, 200, loginPagina({}));
-    }
-
-    if (methode === 'POST' && pathname === '/inloggen') {
-      const { email, wachtwoord } = await leesFormulier(req);
-      const rij = db.prepare('SELECT * FROM gebruikers WHERE email = ? AND actief = 1').get((email || '').toLowerCase().trim());
-      if (!rij || !verifieerWachtwoord(wachtwoord || '', rij.wachtwoord_hash)) {
-        return stuurHtml(res, 401, loginPagina({ fout: 'E-mailadres of wachtwoord is onjuist.' }));
-      }
-      const { token } = maakSessie(rij.id);
-      return redirect(res, '/chauffeur', {
-        'Set-Cookie': sessieCookieHeader(token),
-      });
-    }
-
-    // ---- Chauffeur: inloggen met persoonlijke code i.p.v. e-mail/wachtwoord.
-    // Sessie duurt lang (zie SESSIE_DUUR_LANG_MS): als startscherm-icoon
-    // gebruikt blijft de chauffeur ingelogd tot de app echt wordt afgesloten.
-    if (methode === 'GET' && pathname === '/chauffeur-login') {
-      if (gebruiker) return redirect(res, '/chauffeur');
-      const chauffeurs = db.prepare(`SELECT id, naam FROM gebruikers WHERE actief = 1 ORDER BY rol = 'planner' DESC, naam`).all();
-      return stuurHtml(res, 200, chauffeurLoginKiezerPagina({ chauffeurs }));
-    }
-
-    const chauffeurLoginMatch = pathname.match(/^\/chauffeur-login\/([^/]+)$/);
-    if (chauffeurLoginMatch && methode === 'GET') {
-      const chauffeur = db.prepare(`SELECT id, naam, pincode_hash FROM gebruikers WHERE id = ? AND actief = 1`).get(chauffeurLoginMatch[1]);
-      if (!chauffeur) return redirect(res, '/chauffeur-login');
-      return stuurHtml(res, 200, chauffeurLoginCodePagina({ chauffeur, heeftPincode: !!chauffeur.pincode_hash }));
-    }
-    if (chauffeurLoginMatch && methode === 'POST') {
-      const chauffeur = db.prepare(`SELECT * FROM gebruikers WHERE id = ? AND actief = 1`).get(chauffeurLoginMatch[1]);
-      if (!chauffeur) return redirect(res, '/chauffeur-login');
-      const v = await leesFormulier(req);
-      if (!chauffeur.pincode_hash || !verifieerWachtwoord(v.code || '', chauffeur.pincode_hash)) {
-        return stuurHtml(res, 401, chauffeurLoginCodePagina({ chauffeur, heeftPincode: !!chauffeur.pincode_hash, fout: 'Onjuiste code.' }));
-      }
-      const { token } = maakSessie(chauffeur.id, SESSIE_DUUR_LANG_MS);
-      return redirect(res, '/chauffeur', { 'Set-Cookie': sessieCookieHeader(token, { duurMs: SESSIE_DUUR_LANG_MS }) });
-    }
-
-    const chauffeurLoginInstellenMatch = pathname.match(/^\/chauffeur-login\/([^/]+)\/instellen$/);
-    if (chauffeurLoginInstellenMatch && methode === 'POST') {
-      const chauffeur = db.prepare(`SELECT * FROM gebruikers WHERE id = ? AND actief = 1`).get(chauffeurLoginInstellenMatch[1]);
-      if (!chauffeur) return redirect(res, '/chauffeur-login');
-      if (chauffeur.pincode_hash) return redirect(res, `/chauffeur-login/${chauffeur.id}`); // al ingesteld, niet hier overschrijven
-      const v = await leesFormulier(req);
-      const nieuweCode = (v.nieuwe_code || '').trim();
-      if (!/^\d{4,6}$/.test(nieuweCode) || nieuweCode !== (v.nieuwe_code_herhaald || '').trim()) {
-        return stuurHtml(
-          res,
-          400,
-          chauffeurLoginCodePagina({ chauffeur, heeftPincode: false, fout: 'Kies twee keer dezelfde code van 4 tot 6 cijfers.' })
-        );
-      }
-      db.prepare('UPDATE gebruikers SET pincode_hash = ? WHERE id = ?').run(hashWachtwoord(nieuweCode), chauffeur.id);
-      const { token } = maakSessie(chauffeur.id, SESSIE_DUUR_LANG_MS);
-      return redirect(res, '/chauffeur', { 'Set-Cookie': sessieCookieHeader(token, { duurMs: SESSIE_DUUR_LANG_MS }) });
-    }
-
-    if (methode === 'POST' && pathname === '/uitloggen') {
-      const cookies = parseCookies(req.headers.cookie);
-      if (cookies.sessie) verwijderSessie(cookies.sessie);
-      return redirect(res, '/login', { 'Set-Cookie': sessieCookieHeader('', { verwijder: true }) });
-    }
 
     if (pathname === '/') {
       if (!gebruiker) return redirect(res, '/login');
-      return redirect(res, '/chauffeur');
+      if (kan(gebruiker, 'mijnwerk')) return redirect(res, '/chauffeur');
+      if (kan(gebruiker, 'planning')) return redirect(res, '/planner/dashboard');
+      return redirect(res, '/account');
     }
+
+    if (!gebruiker) {
+      // Niet ingelogd: naar het inlogscherm (pincode als dit apparaat al bekend is) en daarna terug.
+      const terug = methode === 'GET' ? `?volgende=${encodeURIComponent(pathname + url.search)}` : '';
+      return redirect(res, '/login' + terug);
+    }
+
+    // ---- Rechten per module: elk scherm valt onder één module ----
+    const vereiste = vereisteVoorPad(pathname, methode);
+    if (vereiste && !kan(gebruiker, vereiste.module, vereiste.niveau)) {
+      return stuurHtml(
+        res,
+        403,
+        layout({
+          titel: 'Geen toegang',
+          actief: '',
+          gebruiker,
+          inhoud: `<div class="card"><h1>Geen toegang</h1><p class="muted">Je functierol heeft geen rechten voor dit onderdeel${vereiste.niveau > 1 ? ' (of alleen om te bekijken)' : ''}. Vraag een beheerder om je rechten aan te passen.</p><p><a class="btn" href="/">Naar het beginscherm</a></p></div>`,
+        })
+      );
+    }
+
+    // ---- Beheer, Mijn account, menu en zoeken (zie src/beheer.js) ----
+    if (await behandelBeheer(req, res, url, gebruiker, { leesFormulier, stuurHtml, redirect, layout })) return;
 
     // Alles hierna vereist een ingelogde gebruiker.
     if (!gebruiker) return redirect(res, '/login');
@@ -1644,98 +1615,15 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    // ---- Eigen account (alle rollen): Instellingen - wachtwoord, e-mail en
-    // (voor chauffeurs) de persoonlijke inlogcode. ----
-    function toonInstellingen(status, extra = {}) {
-      const actueel = db.prepare('SELECT pincode_hash FROM gebruikers WHERE id = ?').get(gebruiker.id);
-      return stuurHtml(
-        res,
-        status,
-        layout({
-          titel: 'Instellingen',
-          actief: 'instellingen',
-          gebruiker,
-          inhoud: pagInstellingen({
-            huidigEmail: gebruiker.email,
-            magPincode: true,
-            heeftPincode: !!(actueel && actueel.pincode_hash),
-            ...extra,
-          }),
-        })
-      );
-    }
-
-    if (pathname === '/account/instellingen' && methode === 'GET') {
-      return toonInstellingen(200);
-    }
-    // Oude link ("Wachtwoord" stond eerst los in de topbalk) blijft werken.
-    if (pathname === '/account/wachtwoord' && methode === 'GET') {
-      return redirect(res, '/account/instellingen');
-    }
-
-    if (pathname === '/account/wachtwoord' && methode === 'POST') {
-      const v = await leesFormulier(req);
-      const actueel = db.prepare('SELECT * FROM gebruikers WHERE id = ?').get(gebruiker.id);
-      if (!verifieerWachtwoord(v.huidig_wachtwoord || '', actueel.wachtwoord_hash)) {
-        return toonInstellingen(400, { fout: 'Huidig wachtwoord is onjuist.' });
-      }
-      if (!v.nieuw_wachtwoord || v.nieuw_wachtwoord.length < 8) {
-        return toonInstellingen(400, { fout: 'Nieuw wachtwoord moet minimaal 8 tekens zijn.' });
-      }
-      if (v.nieuw_wachtwoord !== v.nieuw_wachtwoord_herhaald) {
-        return toonInstellingen(400, { fout: 'De twee wachtwoorden komen niet overeen.' });
-      }
-      db.prepare('UPDATE gebruikers SET wachtwoord_hash = ? WHERE id = ?').run(hashWachtwoord(v.nieuw_wachtwoord), gebruiker.id);
-      return toonInstellingen(200, { succes: true });
-    }
-
-    if (pathname === '/account/email' && methode === 'POST') {
-      const v = await leesFormulier(req);
-      const actueel = db.prepare('SELECT * FROM gebruikers WHERE id = ?').get(gebruiker.id);
-      if (!verifieerWachtwoord(v.huidig_wachtwoord || '', actueel.wachtwoord_hash)) {
-        return toonInstellingen(400, { emailFout: 'Huidig wachtwoord is onjuist.' });
-      }
-      const nieuwEmail = (v.nieuw_email || '').toLowerCase().trim();
-      if (!nieuwEmail || !nieuwEmail.includes('@')) {
-        return toonInstellingen(400, { emailFout: 'Vul een geldig e-mailadres in.' });
-      }
-      try {
-        db.prepare('UPDATE gebruikers SET email = ? WHERE id = ?').run(nieuwEmail, gebruiker.id);
-      } catch {
-        return toonInstellingen(400, { emailFout: 'Dit e-mailadres is al in gebruik.' });
-      }
-      gebruiker.email = nieuwEmail;
-      return toonInstellingen(200, { emailSucces: true });
-    }
-
-    if (pathname === '/account/pincode' && methode === 'POST') {
-      const v = await leesFormulier(req);
-      const actueel = db.prepare('SELECT pincode_hash FROM gebruikers WHERE id = ?').get(gebruiker.id);
-      const heeftPincode = !!actueel.pincode_hash;
-      if (heeftPincode && !verifieerWachtwoord(v.huidige_code || '', actueel.pincode_hash)) {
-        return toonInstellingen(400, { pincodeFout: 'Huidige code is onjuist.' });
-      }
-      const nieuweCode = (v.nieuwe_code || '').trim();
-      if (!/^\d{4,6}$/.test(nieuweCode)) {
-        return toonInstellingen(400, { pincodeFout: 'Kies een code van 4 tot 6 cijfers.' });
-      }
-      if (nieuweCode !== (v.nieuwe_code_herhaald || '').trim()) {
-        return toonInstellingen(400, { pincodeFout: 'De twee codes komen niet overeen.' });
-      }
-      db.prepare('UPDATE gebruikers SET pincode_hash = ? WHERE id = ?').run(hashWachtwoord(nieuweCode), gebruiker.id);
-      return toonInstellingen(200, { pincodeSucces: true });
-    }
-
     // ---- Planner-routes ----
     if (pathname.startsWith('/planner')) {
-      if (gebruiker.rol !== 'planner') return stuurHtml(res, 403, 'Geen toegang.');
 
       if (methode === 'GET' && pathname === '/planner/dashboard') {
         const periodeType = url.searchParams.get('periode') === 'week' ? 'week' : 'maand';
         return stuurHtml(
           res,
           200,
-          layout({ titel: 'Dashboard', actief: 'dashboard', gebruiker, inhoud: pagDashboard(haalDashboardData(periodeType)) })
+          layout({ titel: 'Bedrijfsdashboard', actief: 'bedrijfsdashboard', gebruiker, inhoud: pagDashboard(haalDashboardData(periodeType)) })
         );
       }
 
@@ -2023,6 +1911,7 @@ const server = http.createServer(async (req, res) => {
             actief: 'backups',
             gebruiker,
             inhoud: pagBackups({
+                tabs: beheerTabs('backups'),
               backups: lijstBackups(),
               succes,
               fout: url.searchParams.get('fout') || '',
@@ -2104,6 +1993,7 @@ const server = http.createServer(async (req, res) => {
               actief: 'backups',
               gebruiker,
               inhoud: pagBackups({
+                tabs: beheerTabs('backups'),
                 backups: lijstBackups(),
                 fout: fout.message,
                 oneDriveGeconfigureerd: oneDriveGeconfigureerd(),
@@ -2152,6 +2042,7 @@ const server = http.createServer(async (req, res) => {
             actief: 'backups',
             gebruiker,
             inhoud: pagBackups({
+                tabs: beheerTabs('backups'),
               backups: lijstBackups(),
               fout: `Koppelen met OneDrive is mislukt: ${resultaat.bericht}`,
               oneDriveGeconfigureerd: oneDriveGeconfigureerd(),
@@ -2356,15 +2247,22 @@ const server = http.createServer(async (req, res) => {
         if (!v.naam || !v.email) {
           return stuurHtml(res, 400, layout({ titel: 'Chauffeurs', actief: 'chauffeurs', gebruiker, inhoud: pagChauffeurs({ chauffeurs, fout: 'Naam en e-mailadres zijn verplicht.' }) }));
         }
-        const tijdelijkWachtwoord = Math.random().toString(36).slice(2, 8) + Math.random().toString(36).slice(2, 4);
         try {
           const id = nieuweId();
+          const nieuw = { naam: v.naam.trim(), email: v.email.toLowerCase().trim() };
+          // Geen wachtwoord meer: inloggen gaat met e-mailcode + pincode. Het
+          // wachtwoordveld krijgt een onbruikbare willekeurige waarde.
           db.prepare("INSERT INTO gebruikers (id, naam, email, wachtwoord_hash, rol) VALUES (?, ?, ?, ?, 'chauffeur')").run(
             id,
-            v.naam.trim(),
-            v.email.toLowerCase().trim(),
-            hashWachtwoord(tijdelijkWachtwoord)
+            nieuw.naam,
+            nieuw.email,
+            hashWachtwoord(nieuweId() + nieuweId())
           );
+          const rolChauffeur = db.prepare("SELECT id FROM functierollen WHERE sleutel = 'chauffeur'").get();
+          if (rolChauffeur) db.prepare('INSERT OR IGNORE INTO gebruiker_rollen (gebruiker_id, rol_id) VALUES (?, ?)').run(id, rolChauffeur.id);
+          synchroniseerRolKolom(id);
+          logActie(gebruiker, 'Gebruiker aangemaakt', 'gebruiker', id, `${nieuw.naam} <${nieuw.email}> (chauffeur)`);
+          await stuurWelkomstmail(nieuw);
           const bijgewerkteChauffeurs = db.prepare("SELECT * FROM gebruikers WHERE rol = 'chauffeur' ORDER BY naam").all();
           return stuurHtml(
             res,
@@ -2373,10 +2271,7 @@ const server = http.createServer(async (req, res) => {
               titel: 'Chauffeurs',
               actief: 'chauffeurs',
               gebruiker,
-              inhoud: pagChauffeurs({
-                chauffeurs: bijgewerkteChauffeurs,
-                nieuweInloggegevens: { naam: v.naam.trim(), email: v.email.toLowerCase().trim(), wachtwoord: tijdelijkWachtwoord },
-              }),
+              inhoud: pagChauffeurs({ chauffeurs: bijgewerkteChauffeurs, nieuweInloggegevens: nieuw }),
             })
           );
         } catch {
@@ -2387,35 +2282,28 @@ const server = http.createServer(async (req, res) => {
       const chauffeurDeactiverenMatch = pathname.match(/^\/planner\/chauffeurs\/([^/]+)\/deactiveren$/);
       if (chauffeurDeactiverenMatch && methode === 'POST') {
         const c = db.prepare('SELECT * FROM gebruikers WHERE id = ?').get(chauffeurDeactiverenMatch[1]);
-        if (c) db.prepare('UPDATE gebruikers SET actief = ? WHERE id = ?').run(c.actief ? 0 : 1, c.id);
+        if (c && c.id !== gebruiker.id) {
+          db.prepare('UPDATE gebruikers SET actief = ? WHERE id = ?').run(c.actief ? 0 : 1, c.id);
+          if (c.actief) meldAlleApparatenAf(c.id); // inactief = direct van al zijn apparaten afgemeld
+          logActie(gebruiker, c.actief ? 'Gebruiker uitgeschakeld' : 'Gebruiker geactiveerd', 'gebruiker', c.id, c.naam);
+        }
         return redirect(res, '/planner/chauffeurs');
       }
 
-      // Planner is het wachtwoord van een chauffeur kwijt (of de chauffeur zelf) -
-      // hier kan de planner altijd een nieuw tijdelijk wachtwoord instellen, zonder
-      // het oude te hoeven weten. Wordt eenmalig getoond, net als bij aanmaken.
-      const chauffeurWachtwoordResetMatch = pathname.match(/^\/planner\/chauffeurs\/([^/]+)\/wachtwoord-resetten$/);
-      if (chauffeurWachtwoordResetMatch && methode === 'POST') {
-        const c = db.prepare('SELECT * FROM gebruikers WHERE id = ?').get(chauffeurWachtwoordResetMatch[1]);
+      // Pincode vergeten / telefoon kwijt: alle apparaten van de chauffeur afmelden.
+      const chauffeurAfmeldenMatch = pathname.match(/^\/planner\/chauffeurs\/([^/]+)\/apparaten-afmelden$/);
+      if (chauffeurAfmeldenMatch && methode === 'POST') {
+        const c = db.prepare('SELECT * FROM gebruikers WHERE id = ?').get(chauffeurAfmeldenMatch[1]);
         const chauffeurs = db.prepare("SELECT * FROM gebruikers WHERE rol = 'chauffeur' ORDER BY naam").all();
         if (!c || c.rol !== 'chauffeur') {
           return stuurHtml(res, 404, layout({ titel: 'Chauffeurs', actief: 'chauffeurs', gebruiker, inhoud: pagChauffeurs({ chauffeurs, fout: 'Chauffeur niet gevonden.' }) }));
         }
-        const nieuwWachtwoord = Math.random().toString(36).slice(2, 8) + Math.random().toString(36).slice(2, 4);
-        db.prepare('UPDATE gebruikers SET wachtwoord_hash = ? WHERE id = ?').run(hashWachtwoord(nieuwWachtwoord), c.id);
-        const bijgewerkteChauffeurs = db.prepare("SELECT * FROM gebruikers WHERE rol = 'chauffeur' ORDER BY naam").all();
+        meldAlleApparatenAf(c.id);
+        logActie(gebruiker, 'Apparaten afgemeld', 'gebruiker', c.id, c.naam);
         return stuurHtml(
           res,
           200,
-          layout({
-            titel: 'Chauffeurs',
-            actief: 'chauffeurs',
-            gebruiker,
-            inhoud: pagChauffeurs({
-              chauffeurs: bijgewerkteChauffeurs,
-              nieuwWachtwoordVoor: { naam: c.naam, email: c.email, wachtwoord: nieuwWachtwoord },
-            }),
-          })
+          layout({ titel: 'Chauffeurs', actief: 'chauffeurs', gebruiker, inhoud: pagChauffeurs({ chauffeurs, nieuwWachtwoordVoor: { naam: c.naam, email: c.email } }) })
         );
       }
 
@@ -3490,13 +3378,7 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-const eersteInloggegevens = seedIndienLeeg();
-if (eersteInloggegevens) {
-  console.log('\n=== Eerste keer opstarten: planner-account aangemaakt ===');
-  console.log(`E-mailadres: ${eersteInloggegevens.email}`);
-  console.log(`Wachtwoord:  ${eersteInloggegevens.wachtwoord}`);
-  console.log('Log hiermee in en maak daarna je eigen account/wachtwoord.\n');
-}
+zorgVoorEersteBeheerder();
 
 startAutomatischeBackups();
 

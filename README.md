@@ -1,6 +1,9 @@
 # Transport Manager — De Vreugd Transport
 
-Versie 1 (1.0.0) · Node.js 22 · SQLite (`node:sqlite`) · Docker / Portainer
+Versie 2 (2.0.0) · Node.js 22 · SQLite (`node:sqlite`) · Docker / Portainer
+
+Huisstijl, inloggen en beheer zijn gelijk aan **WorkPortal** (De Vreugd
+Productietechniek), met "Transport" in het logo en zonder payoff.
 
 Compleet planning-, uitvoerings- en beheersysteem voor een transportbedrijf:
 de planner plant ritten en routes, houdt klanten/tarieven/voertuigen bij en
@@ -22,8 +25,8 @@ TransportManager-App\
 ├── 1 Info\
 ├── 2 Oude versie's\
 ├── TransportManager\              <- hostmap = git-kopie van GitHub (niet zelf in werken)
-├── transportmanager-app-V1.zip
-└── transportmanager-app-V1\       <- uitgepakte zip (bestanden staan direct in de root)
+├── transportmanager-app-V2.zip
+└── transportmanager-app-V2\       <- uitgepakte zip (bestanden staan direct in de root)
     ├── publiceren.cmd             <- naar GitHub publiceren
     ├── Dockerfile
     ├── docker-compose.yml         <- stack voor Portainer
@@ -51,21 +54,27 @@ worden bij het opstarten automatisch en zonder dataverlies doorgevoerd.
    GitHub-repository op in de hostmap `TransportManager`, zet de bestanden
    erin en pusht naar GitHub.
 2. Portainer → Stacks → Add stack → **Repository**:
-   - Name: `transportmanager`
+   - Name: `transportmanager-app`
    - Repository URL: `https://github.com/CeesdeVreugd/transportmanager-app`
      (bij een privé-repo: Authentication aan, met GitHub-gebruikersnaam en
      een personal access token — zelfde als bij de andere stacks)
    - Repository reference: `refs/heads/main`
    - Compose path: `docker-compose.yml`
-3. Environment variables invullen in de Portainer-UI. Alles is optioneel;
-   **neem de waarden over uit de oude omgeving** (Railway → Variables):
+3. Environment variables invullen in de Portainer-UI. **Neem de waarden over
+   uit de oude omgeving** (Railway → Variables) en voor mail dezelfde
+   app-registratie als WorkPortal:
 
 | Variabele | Uitleg |
 |---|---|
+| `APP_URL` | **Verplicht.** `https://transportmanager.devreugd-pt.nl`. Bepaalt ook of cookies Secure zijn |
+| `ADMIN_EMAIL` / `ADMIN_NAME` | **Verplicht.** Eerste beheerder (Directie + Beheerder), wordt bij de start aangemaakt als dit account nog niet bestaat |
+| `SECRET_KEY` | Lange willekeurige tekst (min. 40 tekens). Leeg = de app maakt er zelf een in `/data/secret_key`. Niet meer wijzigen: anders is iedereen uitgelogd |
+| `GRAPH_TENANT_ID` / `GRAPH_CLIENT_ID` / `GRAPH_CLIENT_SECRET` | App-registratie Microsoft 365 (Mail.Send) — dezelfde als WorkPortal mag |
+| `MAIL_FROM` | Mailbox waaruit verstuurd wordt (inlogcodes, welkomstmail, klant-e-mails) |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | Pushmeldingen. Gebruik **dezelfde** sleutels als in de oude omgeving |
 | `VAPID_CONTACT_EMAIL` | Contactadres voor pushmeldingen, bijv. `info@devreugd-dt.nl` |
 | `ORS_API_KEY` | OpenRouteService: automatische afstand, kaart, volgorde-optimalisatie |
-| `RESEND_API_KEY` / `RESEND_AFZENDER` | E-mail naar de klant bij "onderweg"/"afgerond" |
+| `RESEND_API_KEY` / `RESEND_AFZENDER` | Alternatief voor mail, alleen als `GRAPH_*` leeg is |
 | `ONEDRIVE_CLIENT_ID` / `ONEDRIVE_TENANT_ID` | Back-ups ook naar OneDrive (tenant standaard `common`) |
 | `TM_MEM_LIMIT` | Geheugengrens container, standaard `1g` |
 
@@ -73,18 +82,16 @@ worden bij het opstarten automatisch en zonder dataverlies doorgevoerd.
    `transportmanager-app` op *healthy*; `https://<adres>/health` geeft
    `{"status":"ok"}`.
 5. Nginx Proxy Manager → Proxy Host toevoegen:
-   - Domain: bijv. `transport.<jouwdomein>.nl` (DNS moet naar het publieke IP wijzen)
+   - Domain: `transportmanager.devreugd-pt.nl` (DNS moet naar het publieke IP wijzen)
    - Forward Hostname: `transportmanager-app`, Forward Port: `3000`, scheme `http`
    - **Websockets Support** mag uit; **Block Common Exploits** aan
    - SSL: Let's Encrypt, **Force SSL**, HTTP/2 aan (HTTPS is verplicht voor
      pushmeldingen, camera en "Zet op beginscherm")
    - Tabblad Advanced (voor grote foto-uploads en het terugzetten van de database):
      `client_max_body_size 500m;`
-6. Bij een **lege** database maakt de app één planner-account aan en zet de
-   inloggegevens éénmalig in het log: Portainer → Containers →
-   `transportmanager-app` → Logs. Ga je de gegevens overzetten (zie
-   hieronder), dan is dit account alleen nodig om in te loggen voor het
-   terugzetten.
+6. Inloggen met `ADMIN_EMAIL` → code uit de mail → pincode instellen.
+   Zonder mailinstellingen werkt de app in **testmodus**: de inlogcode staat
+   dan in het containerlog (Portainer → Containers → `transportmanager-app` → Logs).
 
 ## Overzetten vanaf de oude omgeving (Railway)
 
@@ -94,14 +101,18 @@ bestaan tot alles gecontroleerd is.
 
 1. **Oude omgeving** → Back-ups → **Nu back-uppen** → download de nieuwste
    back-up (`transport-backup-....db`).
-2. **Nieuwe omgeving** → log in met het eenmalige account uit het log →
+2. **Nieuwe omgeving** → log in met `ADMIN_EMAIL` (e-mailcode + pincode) →
    Back-ups → onderaan **Overzetten vanaf de oude omgeving** → Stap 1:
    kies het `.db`-bestand → **Database terugzetten**. De app herstart zichzelf
    (± 10 seconden) en gebruikt dan de oude database. De vorige (lege)
    database blijft bewaard als `backups/voor-herstel-....db`.
-3. Log opnieuw in, nu met je **eigen account uit de oude omgeving**.
+3. Log opnieuw in (e-mailcode + pincode). Alle gebruikers uit de oude
+   omgeving zijn automatisch omgezet: planners → functierol **Planning** +
+   **Beheerder** (dezelfde toegang als voorheen), chauffeurs → functierol
+   **Chauffeur**. Iedereen logt voortaan in met zijn eigen e-mailadres;
+   wachtwoorden en de oude chauffeurscodes vervallen.
 4. Back-ups → Overzetten → Stap 2: vul het adres van de oude omgeving
-   (bijv. `https://....up.railway.app`) en je planner-e-mail/wachtwoord in →
+   (bijv. `https://....up.railway.app`) en je **oude** planner-e-mail/wachtwoord in →
    **Bestanden ophalen**. De app haalt alle CMR's, pakbonnen, foto's en
    handtekeningen op die in de database staan. Ververs de pagina voor de
    voortgang; "Nu ontbreken er 0 bestand(en)" = compleet. Je kunt dit
@@ -124,7 +135,7 @@ bestaan tot alles gecontroleerd is.
      hostmap `TransportManager-App\TransportManager`;
    - kopieert de nieuwe bestanden naar de hostmap (oude bestanden worden opgeruimd);
    - commit en pusht naar GitHub.
-3. Portainer → stack `transportmanager` → **Pull and redeploy** (met
+3. Portainer → stack `transportmanager-app` → **Pull and redeploy** (met
    "Re-pull image and redeploy"). Gegevens blijven staan.
 
 ## Lokaal draaien (ontwikkelen, zonder Docker)
@@ -138,9 +149,59 @@ De app draait dan op http://localhost:3000 (of de poort uit `PORT`). De
 data komt in de map `data/` (of in `DATA_DIR` als die is ingesteld). Node.js
 22.5 of nieuwer is nodig.
 
+## Huisstijl (gelijk aan WorkPortal)
+
+Donkerblauw `#0A0A96` als basis, felblauw `#0080FF` als accent, lettertype
+Ubuntu. Alle kleuren staan als variabelen bovenaan `public/styles.css` (dat
+is de stylesheet van WorkPortal, met onderaan een laag die de bestaande
+Transport-schermen dezelfde knoppen, kaarten, tabellen en velden geeft).
+
+- Pc (breder dan 900 px): witte zijbalk met logo, label TRANSPORTMANAGER en
+  menu per groep; witte bovenbalk met zoekveld, gebruiker en vergrendelknop.
+- Telefoon: blauwe bovenbalk met het witte logo en een vaste onderbalk
+  (Start, Ritten, Uren, Planning/Meldingen, Meer).
+- Logo's in `public/img/` (`logo.png`, `logo-wit.png`): het WorkPortal-logo
+  met "TRANSPORT" in plaats van "PRODUCTIETECHNIEK". Geen payoff.
+- App-iconen gelijk aan WorkPortal: rond (`wp-round-*`) voor Android/pc,
+  vierkant (`wp-app-*`) voor iPhone. Appnaam "TransportManager - DVT".
+- De service worker cachet bewust niets: altijd de actuele versie.
+
+## Inloggen
+
+Zonder wachtwoord, zoals WorkPortal: e-mailadres → code van 6 cijfers per
+mail (10 minuten geldig) → pincode per apparaat (4–8 cijfers). Daarna opent
+de app direct het pinscherm. Elke 14 dagen opnieuw een e-mailcode
+(instelbaar). Na 5 foute pincodes is weer een e-mailcode nodig. Na 12 uur
+vergrendelt de app automatisch (instelbaar). Het slotje rechtsboven
+vergrendelt; "Ander account" / "Dit apparaat vergeten" wist het apparaat.
+
+## Rechten
+
+Functierollen: **Administratie**, **Directie**, **Planning**, **Chauffeur**
+(met de rolkleuren van WorkPortal). Per functierol en module:
+**Geen · Lezen · Bewerken · Beheer** (Beheer = ook verwijderen). Een
+gebruiker kan meerdere rollen hebben; per module geldt het hoogste recht.
+Per gebruiker kunnen extra rechten worden gegeven. "Beheerder" = overal
+alle rechten. Wie de rol Chauffeur heeft, kan aan ritten worden gekoppeld.
+
+| Module | Administratie | Directie | Planning | Chauffeur |
+|---|---|---|---|---|
+| Mijn werk (ritopdrachten, uren, meldingen) | Geen | Bewerken | Bewerken | Bewerken |
+| Planning (dashboard, ritten, sjablonen) | Lezen | Beheer | Beheer | Geen |
+| Weekoverzicht, financieel & prijscalculator | Beheer | Beheer | Bewerken | Geen |
+| Wagenpark (voertuigen & incidenten) | Lezen | Beheer | Beheer | Geen |
+| Relaties (klanten & tarieven) | Beheer | Beheer | Bewerken | Geen |
+| Chauffeurs & uren | Bewerken | Beheer | Bewerken | Geen |
+| Beheer (gebruikers, rechten & back-ups) | Beheer | Beheer | Geen | Geen |
+
+Aan te passen in **Beheer → Rechten per functierol**. Beheer heeft verder
+de tabbladen Gebruikers (met apparaten afmelden), Instellingen (verifiëren,
+vergrendelen, pincodelengte, testmail, status koppelingen), Back-ups en
+Logboek.
+
 ## Wat de app allemaal doet
 
-**Planner (navigatie boven in 4 groepen):**
+**Planner (menu links, in groepen):**
 
 - **Planning** — Dashboard, Ritten, Routes (met taken per route, kaart en
   automatische volgorde-optimalisatie), Sjablonen (vaste/terugkerende
@@ -153,9 +214,9 @@ data komt in de map `data/` (of in `DATA_DIR` als die is ingesteld). Node.js
 - **Relaties** — Klanten (met meerdere tariefafspraken per klant),
   Tarieven, Chauffeurs.
 
-Daarnaast, rechtsboven: **Back-ups** (handmatig een back-up maken,
+Daarnaast onder **Beheer**: Back-ups (handmatig een back-up maken,
 downloaden, en optioneel automatisch wegschrijven naar OneDrive — zie
-verderop) en het eigen wachtwoord wijzigen.
+verderop).
 
 **Chauffeur (mobiel-vriendelijk):**
 
@@ -213,16 +274,8 @@ activeren.
 
 ## Huisstijl aanpassen
 
-Alle merkinstellingen staan in `src/branding.js` (bedrijfsnaam, kleuren).
-Het logo staat in `public/logo.png`. Na een wijziging van de kleuren kun je
-de app-iconen opnieuw genereren met:
-
-```
-NODE_PATH="$(npm root -g)" node scripts/generate-icons.cjs
-```
-
-(dit script gebruikt het pakket `sharp`; nodig is dat alleen tijdens
-ontwikkelen, niet op de live server).
+Namen staan in `src/branding.js`, kleuren bovenaan `public/styles.css`,
+logo's en iconen in `public/img/`.
 
 ## Prijsberekening (kostprijs & klantprijs)
 
@@ -255,7 +308,7 @@ volgorde van taken optimaliseert? Dat kan via
 1. Maak een gratis account aan op openrouteservice.org en vraag een
    API-sleutel aan ("Dashboard" → "Request a token").
 2. Zet die sleutel als omgevingsvariabele **`ORS_API_KEY`** bij je
-   Portainer-stack (Stacks → transportmanager → Environment variables →
+   Portainer-stack (Stacks → transportmanager-app → Environment variables →
    "Update the stack").
 3. Klik in Portainer op "Update the stack" (herstart de app). Bij het inplannen van een rit verschijnt dan een werkende
    "Bereken automatisch"-knop, en op de routepagina verschijnt een kaart met
@@ -267,12 +320,13 @@ duidelijke melding en je vult/plant alles zelf.
 ## Klant-e-mails (optioneel)
 
 Wil je dat de klant automatisch een e-mail krijgt zodra een rit "onderweg"
-of "afgerond" wordt gezet? Dat kan via [Resend](https://resend.com)
-(gratis voor een beperkt aantal e-mails per maand):
+of "afgerond" wordt gezet? Dat gaat via dezelfde mailinstelling als de
+inlogcodes (Microsoft 365: `GRAPH_*` + `MAIL_FROM`). Als alternatief kan
+[Resend](https://resend.com):
 
 1. Maak een gratis account aan op resend.com en vraag een API-sleutel aan.
 2. Zet die sleutel als omgevingsvariabele **`RESEND_API_KEY`** bij je
-   Portainer-stack `transportmanager`. Optioneel: **`RESEND_AFZENDER`** voor een eigen
+   Portainer-stack `transportmanager-app`. Optioneel: **`RESEND_AFZENDER`** voor een eigen
    afzenderadres (anders wordt een standaard Resend-testadres gebruikt).
 3. Klik in Portainer op "Update the stack" (herstart de app). Zorg dat er een e-mailadres bij de klant is ingevuld.
 
@@ -303,7 +357,7 @@ nodig, geen client secret):
 4. Ga naar "API-machtigingen" → voeg Microsoft Graph-machtiging
    `Files.ReadWrite` en `offline_access` toe (delegated).
 5. Kopieer de "Toepassings-id (client)" van de overzichtspagina.
-6. Zet in Portainer (stack `transportmanager`) de omgevingsvariabele
+6. Zet in Portainer (stack `transportmanager-app`) de omgevingsvariabele
    **`ONEDRIVE_CLIENT_ID`** met die waarde, en klik "Update the stack".
 7. Ga in de app naar "Back-ups" → klik op "Koppel OneDrive" → volg de
    code-instructies op het scherm (eenmalig, in een browser).

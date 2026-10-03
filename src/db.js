@@ -545,18 +545,154 @@ export function nieuweId() {
   return randomUUID();
 }
 
-// ---- Eerste-gebruik: seed een planner-account als er nog geen gebruikers zijn ----
-export function seedIndienLeeg() {
-  const aantal = db.prepare('SELECT COUNT(*) AS n FROM gebruikers').get().n;
-  if (aantal > 0) return null;
+// ---- Accounts, functierollen, rechten en inloggen (zelfde opzet als WorkPortal) ----
+db.exec(`
+CREATE TABLE IF NOT EXISTS functierollen (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  sleutel TEXT NOT NULL UNIQUE,
+  naam TEXT NOT NULL,
+  volgorde INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS gebruiker_rollen (
+  gebruiker_id TEXT NOT NULL REFERENCES gebruikers(id) ON DELETE CASCADE,
+  rol_id INTEGER NOT NULL REFERENCES functierollen(id) ON DELETE CASCADE,
+  PRIMARY KEY (gebruiker_id, rol_id)
+);
+CREATE TABLE IF NOT EXISTS rol_rechten (
+  rol_id INTEGER NOT NULL REFERENCES functierollen(id) ON DELETE CASCADE,
+  module TEXT NOT NULL,
+  niveau INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (rol_id, module)
+);
+CREATE TABLE IF NOT EXISTS gebruiker_rechten (
+  gebruiker_id TEXT NOT NULL REFERENCES gebruikers(id) ON DELETE CASCADE,
+  module TEXT NOT NULL,
+  niveau INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (gebruiker_id, module)
+);
+CREATE TABLE IF NOT EXISTS login_codes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  gebruiker_id TEXT NOT NULL REFERENCES gebruikers(id) ON DELETE CASCADE,
+  code_hash TEXT NOT NULL,
+  verloopt_op TEXT NOT NULL,
+  pogingen INTEGER NOT NULL DEFAULT 0,
+  gebruikt INTEGER NOT NULL DEFAULT 0,
+  aangemaakt_op TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS apparaten (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  gebruiker_id TEXT NOT NULL REFERENCES gebruikers(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL UNIQUE,
+  pin_hash TEXT,
+  pin_pogingen INTEGER NOT NULL DEFAULT 0,
+  geverifieerd_op TEXT,
+  laatst_gebruikt TEXT,
+  user_agent TEXT,
+  aangemaakt_op TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS app_instellingen (
+  sleutel TEXT PRIMARY KEY,
+  waarde TEXT
+);
+CREATE TABLE IF NOT EXISTS logboek (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  gebruiker_id TEXT,
+  wie TEXT,
+  actie TEXT NOT NULL,
+  onderdeel TEXT,
+  onderdeel_id TEXT,
+  details TEXT,
+  aangemaakt_op TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_login_codes_gebruiker ON login_codes(gebruiker_id, aangemaakt_op);
+CREATE INDEX IF NOT EXISTS idx_apparaten_gebruiker ON apparaten(gebruiker_id);
+CREATE INDEX IF NOT EXISTS idx_logboek_tijd ON logboek(aangemaakt_op);
+`);
+voegKolomToeIndienNodig('gebruikers', 'is_beheerder', 'INTEGER NOT NULL DEFAULT 0');
+voegKolomToeIndienNodig('gebruikers', 'laatst_ingelogd', 'TEXT');
+voegKolomToeIndienNodig('sessies', 'apparaat_id', 'INTEGER');
+voegKolomToeIndienNodig('sessies', 'ontgrendeld_op', 'TEXT');
 
-  const id = nieuweId();
-  const tijdelijkWachtwoord = randomBytes(6).toString('base64url');
+// Functierollen, kleuren en standaardrechten: zie src/rechten.js. Hier alleen
+// het eenmalig vullen en het omzetten van bestaande planner/chauffeur-accounts.
+export function appInstelling(sleutel, standaard = null) {
+  const rij = db.prepare('SELECT waarde FROM app_instellingen WHERE sleutel = ?').get(sleutel);
+  return rij && rij.waarde !== null && rij.waarde !== undefined ? rij.waarde : standaard;
+}
+export function zetAppInstelling(sleutel, waarde) {
   db.prepare(
-    `INSERT INTO gebruikers (id, naam, email, wachtwoord_hash, rol) VALUES (?, ?, ?, ?, 'planner')`
-  ).run(id, 'Beheerder', 'beheerder@voorbeeld.nl', hashWachtwoord(tijdelijkWachtwoord));
+    'INSERT INTO app_instellingen (sleutel, waarde) VALUES (?, ?) ON CONFLICT(sleutel) DO UPDATE SET waarde = excluded.waarde'
+  ).run(sleutel, waarde === null || waarde === undefined ? null : String(waarde));
+}
 
-  return { email: 'beheerder@voorbeeld.nl', wachtwoord: tijdelijkWachtwoord };
+/**
+ * Vult functierollen + standaardrechten (eenmalig) en zet bestaande accounts
+ * om: planners → functierol Planning + Beheerder (zo houden ze precies de
+ * toegang die ze hadden), chauffeurs → functierol Chauffeur.
+ */
+export function initialiseerRollen({ ROLLEN, STANDAARD_MATRIX }) {
+  const bestaand = db.prepare('SELECT COUNT(*) AS n FROM functierollen').get().n;
+  if (bestaand === 0) {
+    const insRol = db.prepare('INSERT INTO functierollen (sleutel, naam, volgorde) VALUES (?, ?, ?)');
+    ROLLEN.forEach(([sleutel, naam], i) => insRol.run(sleutel, naam, i));
+    const rolId = Object.fromEntries(db.prepare('SELECT id, sleutel FROM functierollen').all().map((r) => [r.sleutel, r.id]));
+    const insRecht = db.prepare('INSERT OR REPLACE INTO rol_rechten (rol_id, module, niveau) VALUES (?, ?, ?)');
+    for (const [module, perRol] of Object.entries(STANDAARD_MATRIX)) {
+      for (const [sleutel, niveau] of Object.entries(perRol)) {
+        if (rolId[sleutel]) insRecht.run(rolId[sleutel], module, niveau);
+      }
+    }
+  }
+  if (appInstelling('migratie_rollen_v2') !== '1') {
+    const rolId = Object.fromEntries(db.prepare('SELECT id, sleutel FROM functierollen').all().map((r) => [r.sleutel, r.id]));
+    const zonderRol = db
+      .prepare('SELECT * FROM gebruikers WHERE id NOT IN (SELECT gebruiker_id FROM gebruiker_rollen)')
+      .all();
+    const ins = db.prepare('INSERT OR IGNORE INTO gebruiker_rollen (gebruiker_id, rol_id) VALUES (?, ?)');
+    for (const g of zonderRol) {
+      if (g.rol === 'chauffeur' && rolId.chauffeur) {
+        ins.run(g.id, rolId.chauffeur);
+      } else if (rolId.planning) {
+        ins.run(g.id, rolId.planning);
+        db.prepare('UPDATE gebruikers SET is_beheerder = 1 WHERE id = ?').run(g.id);
+      }
+    }
+    zetAppInstelling('migratie_rollen_v2', '1');
+  }
+}
+
+/**
+ * Eerste beheerder: bestaat er nog geen account voor ADMIN_EMAIL, dan wordt
+ * die aangemaakt met functierol Directie en de vlag Beheerder.
+ */
+export function zorgVoorEersteBeheerder() {
+  const email = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+  if (!email) {
+    const n = db.prepare('SELECT COUNT(*) AS n FROM gebruikers').get().n;
+    if (n === 0) {
+      console.log('\n[TransportManager] Nog geen gebruikers. Zet ADMIN_EMAIL (en ADMIN_NAME) in de Portainer-stack en herstart.\n');
+    }
+    return;
+  }
+  const bestaand = db.prepare('SELECT * FROM gebruikers WHERE lower(email) = ?').get(email);
+  if (bestaand) {
+    if (!bestaand.is_beheerder || !bestaand.actief) {
+      db.prepare('UPDATE gebruikers SET is_beheerder = 1, actief = 1 WHERE id = ?').run(bestaand.id);
+    }
+    return;
+  }
+  const id = nieuweId();
+  db.prepare(
+    `INSERT INTO gebruikers (id, naam, email, wachtwoord_hash, rol, is_beheerder) VALUES (?, ?, ?, ?, 'planner', 1)`
+  ).run(id, (process.env.ADMIN_NAME || 'Beheerder').trim(), email, hashWachtwoord(randomBytes(24).toString('hex')));
+  const directie = db.prepare("SELECT id FROM functierollen WHERE sleutel = 'directie'").get();
+  if (directie) db.prepare('INSERT OR IGNORE INTO gebruiker_rollen (gebruiker_id, rol_id) VALUES (?, ?)').run(id, directie.id);
+  console.log(`[TransportManager] Eerste beheerder aangemaakt: ${email}`);
+}
+
+// Oude naam (V1) — doet niets meer: er zijn geen wachtwoorden meer.
+export function seedIndienLeeg() {
+  return null;
 }
 
 export default db;
