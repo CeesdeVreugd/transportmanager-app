@@ -1,0 +1,44 @@
+# Transport Manager – De Vreugd Transport
+# Portainer: Stacks > Add stack > Repository. Stacknaam: transportmanager
+# Vul de environment variables in de Portainer-UI in (zie .env.example / README).
+services:
+  transportmanager-app:
+    build: .
+    # Image wordt op de server zelf gebouwd; niet ophalen van Docker Hub
+    pull_policy: build
+    container_name: transportmanager-app
+    restart: unless-stopped
+    mem_limit: ${TM_MEM_LIMIT:-1g}
+    memswap_limit: ${TM_MEM_LIMIT:-1g}
+    environment:
+      # Pushmeldingen naar chauffeurs (neem de sleutels over uit de oude omgeving!)
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_CONTACT_EMAIL: ${VAPID_CONTACT_EMAIL:-}
+      # Automatische routeberekening, kaart en volgorde-optimalisatie (OpenRouteService)
+      ORS_API_KEY: ${ORS_API_KEY:-}
+      # Klant-e-mails bij "onderweg" / "afgerond" (Resend)
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_AFZENDER: ${RESEND_AFZENDER:-}
+      # Back-ups ook naar OneDrive
+      ONEDRIVE_CLIENT_ID: ${ONEDRIVE_CLIENT_ID:-}
+      ONEDRIVE_TENANT_ID: ${ONEDRIVE_TENANT_ID:-common}
+      TZ: Europe/Amsterdam
+    volumes:
+      - transportmanager-data:/data
+    networks:
+      - intern
+      - npm_default
+    # BEWUST geen "ports:" — Nginx Proxy Manager bereikt de app via het
+    # gedeelde npm_default-netwerk: "transportmanager-app", poort 3000.
+
+volumes:
+  transportmanager-data:
+    name: transportmanager-data
+
+networks:
+  intern:
+    driver: bridge
+  # Bestaat al (aangemaakt door de losse NPM-stack in Portainer).
+  npm_default:
+    external: true
