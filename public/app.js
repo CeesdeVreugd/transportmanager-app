@@ -305,7 +305,7 @@ if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker
       .register('/service-worker.js')
-      .then((registratie) => initPushAbonnement(registratie))
+      .then(() => initPushAbonnement())
       .catch(() => {
         // Stil falen: de app werkt ook prima zonder offline-ondersteuning/push.
       });
@@ -353,36 +353,116 @@ function toonIosInstallatieHint() {
   if (inhoud) inhoud.prepend(balk);
 }
 
-async function initPushAbonnement(registratie) {
+// Pushmeldingen (zoals WorkPortal): toestemming vragen mag een browser alleen
+// na een klik van de gebruiker. Daarom: knop "Meldingen aanzetten" onder Mijn
+// account (en een balk zolang ze nog uit staan). Bij het openen van de app
+// wordt een bestaand abonnement alleen stil ververst.
+window.TM = window.TM || {};
+const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
+const isStandalone = () => window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+function vapidSleutel() {
+  const meta = document.querySelector('meta[name="vapid-public-key"]');
+  return meta && meta.content ? meta.content : '';
+}
+function pushOndersteund() {
+  return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+}
+async function stuurAbonnement(abonnement) {
+  const resp = await fetch('/account/push/abonneren', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(abonnement.toJSON()),
+  });
+  if (!resp.ok) throw new Error('Opslaan van het abonnement mislukt.');
+}
+TM.pushStatus = async function () {
+  if (!vapidSleutel()) return { tekst: 'Pushmeldingen zijn op de server nog niet ingesteld (VAPID-sleutels).', aan: false };
+  if (isIos && !isStandalone()) return { tekst: 'Op iPhone/iPad werken meldingen alleen vanaf het beginscherm: tik in Safari op Deel → "Zet op beginscherm" en open de app vanaf dat icoon.', aan: false };
+  if (!pushOndersteund()) return { tekst: 'Deze browser ondersteunt geen pushmeldingen.', aan: false };
+  if (Notification.permission === 'denied') return { tekst: 'Meldingen zijn geblokkeerd voor deze site. Zet ze aan in de instellingen van de browser of telefoon en probeer opnieuw.', aan: false };
+  const reg = await navigator.serviceWorker.ready;
+  const abo = await reg.pushManager.getSubscription();
+  return abo && Notification.permission === 'granted'
+    ? { tekst: 'Meldingen staan aan op dit apparaat.', aan: true }
+    : { tekst: 'Meldingen staan nog uit op dit apparaat.', aan: false };
+};
+TM.pushAan = async function (statusEl) {
+  const zet = (t) => statusEl && (statusEl.textContent = t);
   try {
-    const meta = document.querySelector('meta[name="vapid-public-key"]');
-    if (!meta || !meta.content) return;
-    toonIosInstallatieHint();
-    if (!('PushManager' in window) || !('Notification' in window)) return;
-    if (Notification.permission === 'denied') return;
-
-    let permissie = Notification.permission;
-    if (permissie === 'default') {
-      permissie = await Notification.requestPermission();
-    }
-    if (permissie !== 'granted') return;
-
-    let abonnement = await registratie.pushManager.getSubscription();
-    if (!abonnement) {
-      abonnement = await registratie.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(meta.content),
-      });
-    }
-    await fetch('/chauffeur/push/abonneren', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(abonnement.toJSON()),
-    });
+    const st = await TM.pushStatus();
+    if (!vapidSleutel() || (isIos && !isStandalone()) || !pushOndersteund() || Notification.permission === 'denied') return zet(st.tekst);
+    zet('Toestemming vragen…');
+    const permissie = await Notification.requestPermission();
+    if (permissie !== 'granted') return zet('Geen toestemming gegeven. Probeer het opnieuw en kies "Toestaan".');
+    const reg = await navigator.serviceWorker.ready;
+    let abo = await reg.pushManager.getSubscription();
+    if (!abo) abo = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(vapidSleutel()) });
+    await stuurAbonnement(abo);
+    zet('Meldingen staan aan op dit apparaat. Stuur gerust een testmelding.');
+    document.querySelectorAll('.pushbalk').forEach((b) => b.remove());
+  } catch (fout) {
+    zet('Aanzetten mislukt: ' + (fout && fout.message ? fout.message : fout));
+  }
+};
+TM.testPush = async function (statusEl) {
+  const zet = (t) => statusEl && (statusEl.textContent = t);
+  try {
+    const resp = await fetch('/account/push/test', { method: 'POST', credentials: 'same-origin' });
+    const data = await resp.json().catch(() => ({}));
+    zet(data.bericht || (resp.ok ? 'Testmelding verstuurd.' : 'Testmelding mislukt.'));
   } catch {
-    // Stil falen (bijv. geen toestemming, of niet-ondersteunde browser).
+    zet('Testmelding mislukt.');
+  }
+};
+async function initPushAbonnement() {
+  try {
+    if (!vapidSleutel() || !pushOndersteund()) return;
+    const reg = await navigator.serviceWorker.ready;
+    const abo = await reg.pushManager.getSubscription();
+    if (abo && Notification.permission === 'granted') {
+      await stuurAbonnement(abo); // stil verversen
+      return;
+    }
+    // Nog niet aan: een balk met een knop (een klik is nodig voor de toestemming).
+    if (Notification.permission === 'denied' || location.pathname.startsWith('/account')) return;
+    try {
+      if (localStorage.getItem('pushbalkVerborgen') === '1') return;
+    } catch {}
+    const inhoud = document.querySelector('main.inhoud');
+    if (!inhoud) return;
+    const balk = document.createElement('div');
+    balk.className = 'flash info pushbalk';
+    const iosTekst = isIos && !isStandalone();
+    balk.innerHTML = iosTekst
+      ? '<span><b>Meldingen op je iPhone?</b> Tik in Safari op Deel → <b>Zet op beginscherm</b> en open de app vanaf dat icoon. Zet ze daarna aan via Mijn account.</span><button type="button" class="pushbalk-sluit" aria-label="Sluiten">×</button>'
+      : '<span><b>Meldingen staan uit.</b> Zet ze aan om direct bericht te krijgen bij nieuwe of gewijzigde ritten.</span><button type="button" class="btn primary sm pushbalk-aan">Meldingen aanzetten</button><button type="button" class="pushbalk-sluit" aria-label="Sluiten">×</button>';
+    const tekst = balk.querySelector('span');
+    const aan = balk.querySelector('.pushbalk-aan');
+    if (aan) aan.addEventListener('click', () => TM.pushAan(tekst));
+    balk.querySelector('.pushbalk-sluit').addEventListener('click', () => {
+      balk.remove();
+      try { localStorage.setItem('pushbalkVerborgen', '1'); } catch {}
+    });
+    inhoud.prepend(balk);
+  } catch {
+    // Stil falen: de rest van de app werkt gewoon door.
   }
 }
+
+// Knoppen op Mijn account
+document.addEventListener('DOMContentLoaded', async () => {
+  const stat = document.getElementById('pushstat');
+  if (!stat) return;
+  try {
+    const st = await TM.pushStatus();
+    stat.textContent = st.tekst;
+  } catch {}
+  const aan = document.getElementById('push-aan');
+  const test = document.getElementById('push-test');
+  if (aan) aan.addEventListener('click', () => TM.pushAan(stat));
+  if (test) test.addEventListener('click', () => TM.testPush(stat));
+});
 
 // ---- Urenregistratie: opdrachten (opdrachtgever-segmenten) en hun stops
 // toevoegen/verwijderen in het ene grote dagformulier ("Dag toevoegen" / dag
@@ -493,6 +573,24 @@ document.addEventListener('DOMContentLoaded', herNummerOpdrachten);
     });
   }
 
+  const ICOON = {
+    zoek: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>',
+    pijl: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>',
+    wis: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+    vink: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>',
+    plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
+  };
+  function initialen(naam) {
+    const d = String(naam).trim().split(/\s+/);
+    return ((d[0] || '')[0] || '').toUpperCase() + (d.length > 1 ? (d[d.length - 1][0] || '').toUpperCase() : '');
+  }
+  function markeerTekst(tekst, q) {
+    if (!q) return esc(tekst);
+    const i = normaal(tekst).indexOf(q);
+    if (i < 0) return esc(tekst);
+    return esc(tekst.slice(0, i)) + '<b>' + esc(tekst.slice(i, i + q.length)) + '</b>' + esc(tekst.slice(i + q.length));
+  }
+
   function verbeter(select) {
     if (verwerkt.has(select) || select.closest('template')) return;
     verwerkt.add(select);
@@ -501,23 +599,30 @@ document.addEventListener('DOMContentLoaded', herNummerOpdrachten);
     const wrap = document.createElement('div');
     wrap.className = 'klantzoek';
     wrap.innerHTML =
-      '<div class="search klantzoek-veld"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>' +
-      '<input type="text" autocomplete="off" role="combobox" aria-expanded="false"></div>' +
+      `<div class="klantzoek-veld"><span class="kz-ico">${ICOON.zoek}</span>` +
+      '<input type="text" autocomplete="off" role="combobox" aria-expanded="false" spellcheck="false">' +
+      `<button type="button" class="kz-wis" aria-label="Keuze wissen" hidden>${ICOON.wis}</button>` +
+      `<span class="kz-pijl">${ICOON.pijl}</span></div>` +
       '<div class="klantzoek-lijst" role="listbox" hidden></div>';
     select.insertAdjacentElement('afterend', wrap);
     const invoer = wrap.querySelector('input');
     const lijst = wrap.querySelector('.klantzoek-lijst');
+    const wis = wrap.querySelector('.kz-wis');
     const leegOptie = [...select.options].find((o) => !o.value);
-    invoer.placeholder = magAanmaken ? 'Zoek of maak een klant…' : 'Zoek een klant…';
+    invoer.placeholder = leegOptie ? leegOptie.text.replace(/^—\s*|\s*—$/g, '') : 'Kies een klant';
     let actiefIndex = -1;
     let items = [];
 
     function toonGekozen() {
       const o = select.options[select.selectedIndex];
-      invoer.value = o && o.value ? o.text : '';
+      const gekozen = !!(o && o.value);
+      invoer.value = gekozen ? o.text : '';
+      wrap.classList.toggle('heeft-waarde', gekozen);
+      wis.hidden = !(gekozen && leegOptie);
     }
     function sluit() {
       lijst.hidden = true;
+      wrap.classList.remove('open');
       invoer.setAttribute('aria-expanded', 'false');
       toonGekozen();
     }
@@ -526,29 +631,35 @@ document.addEventListener('DOMContentLoaded', herNummerOpdrachten);
       select.dispatchEvent(new Event('change', { bubbles: true }));
       sluit();
     }
-    function bouw() {
-      const q = normaal(invoer.value.trim());
+    function bouw(zoekterm) {
+      const ruw = (zoekterm === undefined ? invoer.value : zoekterm).trim();
+      const q = normaal(ruw);
       const opties = [...select.options].filter((o) => o.value);
       const gevonden = q ? opties.filter((o) => normaal(o.text).includes(q)) : opties;
       items = [];
-      let html = '';
+      let html = `<div class="kz-kop">${q ? `${gevonden.length} gevonden` : 'Klanten'}</div><div class="kz-items">`;
       if (leegOptie && !q) {
         items.push({ type: 'kies', waarde: '' });
-        html += `<div class="klantzoek-item geen" data-i="0">${esc(leegOptie.text)}</div>`;
+        html += `<div class="klantzoek-item geen" data-i="0"><span class="kz-av kz-av-leeg">–</span><span class="kz-naam">${esc(leegOptie.text.replace(/^—\s*|\s*—$/g, ''))}</span></div>`;
       }
-      gevonden.slice(0, 50).forEach((o) => {
+      gevonden.slice(0, 60).forEach((o) => {
         items.push({ type: 'kies', waarde: o.value });
-        html += `<div class="klantzoek-item${o.value === select.value ? ' gekozen' : ''}" data-i="${items.length - 1}">${esc(o.text)}</div>`;
+        const gekozen = o.value === select.value;
+        html += `<div class="klantzoek-item${gekozen ? ' gekozen' : ''}" data-i="${items.length - 1}" role="option" aria-selected="${gekozen}">` +
+          `<span class="kz-av">${esc(initialen(o.text))}</span><span class="kz-naam">${markeerTekst(o.text, q)}</span>${gekozen ? `<span class="kz-vink">${ICOON.vink}</span>` : ''}</div>`;
       });
-      if (!gevonden.length && q) html += '<div class="klantzoek-niets">Geen klant gevonden.</div>';
+      if (!gevonden.length && q) html += `<div class="klantzoek-niets">Geen klant gevonden voor “${esc(ruw)}”.</div>`;
+      html += '</div>';
       const exact = opties.some((o) => normaal(o.text) === q);
       if (magAanmaken && q && !exact) {
-        items.push({ type: 'nieuw', naam: invoer.value.trim() });
-        html += `<div class="klantzoek-item nieuw" data-i="${items.length - 1}">+ Nieuwe klant “${esc(invoer.value.trim())}” aanmaken</div>`;
+        items.push({ type: 'nieuw', naam: ruw });
+        html += `<div class="klantzoek-item nieuw" data-i="${items.length - 1}"><span class="kz-plus">${ICOON.plus}</span>` +
+          `<span class="kz-naam"><b>Nieuwe klant aanmaken</b><small>“${esc(ruw)}”</small></span></div>`;
       }
       lijst.innerHTML = html;
       actiefIndex = -1;
       lijst.hidden = false;
+      wrap.classList.add('open');
       invoer.setAttribute('aria-expanded', 'true');
     }
     function markeer() {
@@ -557,8 +668,8 @@ document.addEventListener('DOMContentLoaded', herNummerOpdrachten);
       if (el) el.scrollIntoView({ block: 'nearest' });
     }
     async function maakAan(naam) {
-      const knop = lijst.querySelector('.klantzoek-item.nieuw');
-      if (knop) knop.textContent = 'Bezig met aanmaken…';
+      const knop = lijst.querySelector('.klantzoek-item.nieuw .kz-naam');
+      if (knop) knop.innerHTML = '<b>Bezig met aanmaken…</b>';
       try {
         const resp = await fetch('/planner/klanten/snel', {
           method: 'POST',
@@ -571,7 +682,7 @@ document.addEventListener('DOMContentLoaded', herNummerOpdrachten);
         voegOveralToe(data.id, data.naam);
         kies(data.id);
       } catch (fout) {
-        if (knop) knop.textContent = fout.message || 'Aanmaken mislukt.';
+        if (knop) knop.innerHTML = `<b>${esc(fout.message || 'Aanmaken mislukt.')}</b>`;
       }
     }
     function voerUit(item) {
@@ -582,25 +693,30 @@ document.addEventListener('DOMContentLoaded', herNummerOpdrachten);
 
     invoer.addEventListener('focus', () => {
       invoer.select();
-      bouw();
+      bouw(''); // bij openen de hele lijst tonen; typen filtert
     });
-    invoer.addEventListener('input', bouw);
+    invoer.addEventListener('input', () => bouw());
     invoer.addEventListener('keydown', (e) => {
-      if (e.key === 'ArrowDown') { e.preventDefault(); if (lijst.hidden) bouw(); actiefIndex = Math.min(items.length - 1, actiefIndex + 1); markeer(); }
+      if (e.key === 'ArrowDown') { e.preventDefault(); if (lijst.hidden) bouw(''); actiefIndex = Math.min(items.length - 1, actiefIndex + 1); markeer(); }
       else if (e.key === 'ArrowUp') { e.preventDefault(); actiefIndex = Math.max(0, actiefIndex - 1); markeer(); }
       else if (e.key === 'Enter') {
         if (!lijst.hidden) {
           e.preventDefault();
-          voerUit(items[actiefIndex >= 0 ? actiefIndex : items.findIndex((i) => i.type === 'kies' && i.waarde) >= 0 ? items.findIndex((i) => i.type === 'kies' && i.waarde) : 0]);
+          const eerste = items.findIndex((i) => i.type === 'kies' && i.waarde);
+          voerUit(items[actiefIndex >= 0 ? actiefIndex : eerste >= 0 ? eerste : 0]);
         }
-      } else if (e.key === 'Escape') sluit();
+      } else if (e.key === 'Escape') { sluit(); invoer.blur(); }
     });
     lijst.addEventListener('mousedown', (e) => {
       const el = e.target.closest('.klantzoek-item');
-      if (!el) return;
       e.preventDefault(); // focus in het zoekveld houden
-      voerUit(items[Number(el.dataset.i)]);
+      if (el) voerUit(items[Number(el.dataset.i)]);
     });
+    wrap.querySelector('.kz-pijl').addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      if (lijst.hidden) invoer.focus(); else { sluit(); invoer.blur(); }
+    });
+    wis.addEventListener('mousedown', (e) => { e.preventDefault(); kies(''); });
     invoer.addEventListener('blur', () => setTimeout(() => { if (!wrap.contains(document.activeElement)) sluit(); }, 120));
     select.addEventListener('change', toonGekozen);
     toonGekozen();

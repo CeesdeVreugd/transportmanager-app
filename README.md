@@ -1,6 +1,6 @@
 # Transport Manager — De Vreugd Transport
 
-Versie 4 (4.0.0) · Node.js 22 · SQLite (`node:sqlite`) · Docker / Portainer
+Versie 5 (5.0.0) · Node.js 22 · SQLite (`node:sqlite`) · Docker / Portainer
 
 Huisstijl, inloggen en beheer zijn gelijk aan **WorkPortal** (De Vreugd
 Productietechniek), met "Transport" in het logo en zonder payoff.
@@ -25,8 +25,8 @@ TransportManager-App\
 ├── 1 Info\
 ├── 2 Oude versie's\
 ├── TransportManager\              <- hostmap = git-kopie van GitHub (niet zelf in werken)
-├── transportmanager-app-V4.zip
-└── transportmanager-app-V4\       <- uitgepakte zip (bestanden staan direct in de root)
+├── transportmanager-app-V5.zip
+└── transportmanager-app-V5\       <- uitgepakte zip (bestanden staan direct in de root)
     ├── publiceren.cmd             <- naar GitHub publiceren
     ├── Dockerfile
     ├── docker-compose.yml         <- stack voor Portainer
@@ -391,6 +391,15 @@ Neem beide over uit de oude omgeving (Railway → service → **Variables**):
 *Update the stack*. Controle: Beheer → Instellingen → Pushmeldingen en
 Routeberekening staan op *Ingesteld*. De routeberekening gebruikt het
 vrachtwagenprofiel van OpenRouteService (`driving-hgv`, heel Europa).
+
+## Meldingen aanzetten (per apparaat)
+
+Een browser vraagt alleen toestemming na een klik. Daarom (zoals WorkPortal):
+**Mijn account → Meldingen aanzetten** en **Testmelding sturen**. Zolang de
+meldingen op een apparaat uit staan, staat bovenaan de app een balk met de
+knop *Meldingen aanzetten* (wegklikbaar). Werkt voor iedereen, niet alleen
+chauffeurs. iPhone/iPad: eerst *Zet op beginscherm* en de app vanaf dat icoon
+openen.
 
 ## Pushmeldingen instellen
 

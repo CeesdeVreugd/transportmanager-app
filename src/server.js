@@ -1598,7 +1598,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ---- Beheer, Mijn account, menu en zoeken (zie src/beheer.js) ----
-    if (await behandelBeheer(req, res, url, gebruiker, { leesFormulier, stuurHtml, redirect, layout })) return;
+    if (await behandelBeheer(req, res, url, gebruiker, { leesFormulier, leesJson, stuurJson, stuurHtml, redirect, layout })) return;
 
     // Alles hierna vereist een ingelogde gebruiker.
     if (!gebruiker) return redirect(res, '/login');

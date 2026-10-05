@@ -23,7 +23,7 @@ import {
   pinMinLengte,
 } from './inloggen.js';
 import { mailMethode, verstuurMail } from './mail.js';
-import { pushVapidGeconfigureerd } from './push.js';
+import { pushVapidGeconfigureerd, slaPushAbonnementOp, stuurPushNaarGebruiker } from './push.js';
 import { routeBerekeningActief } from './routing.js';
 import { oneDriveGeconfigureerd, oneDriveGekoppeld } from './onedrive.js';
 import { lijstBackups } from './backup.js';
@@ -399,6 +399,11 @@ ${flashUitUrl(url)}
     <h2>Pushmeldingen op dit apparaat</h2>
     <p class="muted">Chauffeurs krijgen een melding bij een nieuwe of gewijzigde route. Op iPhone werkt dit alleen als de app op het beginscherm staat (Deel → Zet op beginscherm).</p>
     <p class="small">Actieve apparaten met meldingen: <b>${abonnementen}</b></p>
+    <div class="actions">
+      <button class="btn primary" type="button" id="push-aan">${icoon('bell')}Meldingen aanzetten</button>
+      <button class="btn" type="button" id="push-test">Testmelding sturen</button>
+    </div>
+    <p id="pushstat" class="small" style="margin-top:12px"></p>
   </section>
   <section class="card">
     <h2>Mijn apparaten</h2>
@@ -496,6 +501,21 @@ export async function behandelBeheer(req, res, url, gebruiker, h) {
   if ((pathname === '/account' || pathname === '/account/instellingen') && methode === 'GET') {
     return toon('Mijn account', 'account', pagAccount(gebruiker, url)), true;
   }
+  // ---- Pushmeldingen: abonneren en testen (iedereen, voor het eigen apparaat) ----
+  if (pathname === '/account/push/abonneren' && methode === 'POST') {
+    const abonnement = await h.leesJson(req).catch(() => null);
+    if (!abonnement || !abonnement.endpoint || !abonnement.keys) return h.stuurJson(res, 400, { fout: 'Ongeldig abonnement.' }), true;
+    slaPushAbonnementOp(gebruiker.id, abonnement);
+    return h.stuurJson(res, 200, { ok: true }), true;
+  }
+  if (pathname === '/account/push/test' && methode === 'POST') {
+    if (!pushVapidGeconfigureerd()) return h.stuurJson(res, 400, { bericht: 'Pushmeldingen zijn op de server nog niet ingesteld (VAPID-sleutels).' }), true;
+    const n = db.prepare('SELECT COUNT(*) AS n FROM push_abonnementen WHERE gebruiker_id = ?').get(gebruiker.id).n;
+    if (!n) return h.stuurJson(res, 400, { bericht: 'Er staan nog geen meldingen aan. Klik eerst op "Meldingen aanzetten".' }), true;
+    await stuurPushNaarGebruiker(gebruiker.id, { titel: 'Testmelding TransportManager', tekst: `Hallo ${gebruiker.naam.split(' ')[0]}, de meldingen werken.`, url: '/account' });
+    return h.stuurJson(res, 200, { bericht: `Testmelding verstuurd naar ${n} apparaat/apparaten. Komt hij niet binnen, kijk dan of meldingen voor deze app aan staan in de telefooninstellingen.` }), true;
+  }
+
   const apparaatMatch = pathname.match(/^\/account\/apparaat\/(\d+)\/verwijderen$/);
   if (apparaatMatch && methode === 'POST') {
     const d = db.prepare('SELECT * FROM apparaten WHERE id = ? AND gebruiker_id = ?').get(Number(apparaatMatch[1]), gebruiker.id);
