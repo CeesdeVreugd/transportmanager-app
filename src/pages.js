@@ -1228,7 +1228,7 @@ function stopBewerkenToggleHtml(d, actiePrefix) {
     <summary>Wijzigen</summary>
     <form method="post" action="${actiePrefix}/stop/${d.id}/bijwerken" class="form-rij" style="margin-top:0.4rem;align-items:flex-end;flex-wrap:wrap;">
       <label>Plaats
-        <input type="text" name="plaats" value="${escapeHtml(d.plaats || '')}">
+        <input type="text" data-locatie name="plaats" value="${escapeHtml(d.plaats || '')}">
       </label>
       <label>Activiteit
         <input type="text" name="activiteit" list="activiteiten-lijst" value="${escapeHtml(d.activiteit || '')}">
@@ -1313,27 +1313,32 @@ function dagOverzichtHtml(opdracht, dagregels = [], { bewerkbaar = false, actieP
 // stop draagt via een verborgen veld bij tot welk opdracht-blok (0-gebaseerd)
 // hij hoort, zodat één plat formulier meerdere opdrachten met elk hun eigen
 // stops kan opslaan.
+const KRUIS_ICO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 function stopRijHtml(d = {}, volgnummer = '', opdrachtIndex = 0) {
-  return `<div class="kaart stop-rij" style="margin-bottom:0.6rem;padding:0.75rem;">
+  const type = activiteitType(d.activiteit);
+  return `<div class="dagform-stop stop-rij stop-${type}">
     <input type="hidden" name="stop_opdracht_index" value="${opdrachtIndex}" class="stop-opdracht-index">
-    <div class="stop-koptekst" style="font-weight:600;color:var(--kleur-primair);margin-bottom:0.5rem;">Stop <span class="stop-volgnummer">${volgnummer}</span></div>
-    <div class="form-rij" style="align-items:flex-end;">
-      <label>Locatie
-        <input type="text" name="stop_plaats" value="${escapeHtml(d.plaats || '')}" placeholder="Waar?">
+    <div class="dagform-stopkop">
+      <span class="dagform-nr stop-volgnummer">${volgnummer}</span>
+      <span class="dagform-stoptitel">Stop</span>
+      <button type="button" class="iconbtn stop-verwijderen-knop" title="Stop verwijderen" aria-label="Stop verwijderen">${KRUIS_ICO}</button>
+    </div>
+    <div class="dagform-velden dv-stop">
+      <label class="v-plaats">Plaats
+        <input type="text" data-locatie name="stop_plaats" value="${escapeHtml(d.plaats || '')}" placeholder="Waar?">
       </label>
-      <label>Activiteit
-        <input type="text" name="stop_activiteit" list="activiteiten-lijst" value="${escapeHtml(d.activiteit || '')}" placeholder="Laden, pauze, tanken...">
+      <label class="v-activiteit">Activiteit
+        <input type="text" name="stop_activiteit" list="activiteiten-lijst" value="${escapeHtml(d.activiteit || '')}" placeholder="Laden, lossen, pauze…">
       </label>
-      <label>Aankomsttijd
+      <label class="v-tijd">Aankomst
         <input type="time" name="stop_aankomst" value="${escapeHtml(d.tijd_aankomst || '')}">
       </label>
-      <label>Vertrektijd
+      <label class="v-tijd">Vertrek
         <input type="time" name="stop_vertrek" value="${escapeHtml(d.tijd_vertrek || '')}">
       </label>
-      <label>Km-stand
-        <input type="number" step="1" min="0" name="stop_km" value="${d.km_stand != null ? d.km_stand : ''}">
+      <label class="v-km">Km-stand
+        <input type="number" step="1" min="0" name="stop_km" inputmode="numeric" value="${d.km_stand != null ? d.km_stand : ''}">
       </label>
-      <button type="button" class="knop knop-klein knop-gevaar stop-verwijderen-knop">Verwijderen</button>
     </div>
   </div>`;
 }
@@ -1345,8 +1350,28 @@ function stopsEditorHtml(dagregels, opdrachtIndex = 0) {
   const rijen = dagregels.map((d, i) => stopRijHtml(d, i + 1, opdrachtIndex)).join('');
   return `
     <div class="stops-lijst">${rijen}</div>
-    <button type="button" class="knop knop-klein stop-toevoegen-knop">+ Stop toevoegen</button>
+    <button type="button" class="btn sm block dagform-toevoegen stop-toevoegen-knop">+ Stop toevoegen</button>
     <template class="stop-rij-sjabloon">${stopRijHtml({}, '', opdrachtIndex)}</template>`;
+}
+
+// Begin- of eindpunt van een opdracht in het dagformulier (tijd, plaats, km).
+function dagformPuntHtml(soort, opdracht) {
+  const begin = soort === 'start';
+  const p = begin ? 'opdracht_start' : 'opdracht_eind';
+  return `<div class="dagform-punt dagform-punt-${soort}">
+    <div class="dagform-puntkop"><span class="dagform-ico">${begin ? DAG_ICO.start : DAG_ICO.eind}</span>${begin ? 'Begin van de opdracht' : 'Einde van de opdracht'}</div>
+    <div class="dagform-velden dv-punt">
+      <label class="v-plaats">${begin ? 'Beginplaats' : 'Eindplaats'}
+        <input type="text" data-locatie name="${p}_plaats" value="${escapeHtml((begin ? opdracht.start_plaats : opdracht.eind_plaats) || '')}">
+      </label>
+      <label class="v-tijd">${begin ? 'Begintijd' : 'Eindtijd'}
+        <input type="time" name="${p}_tijd" value="${escapeHtml((begin ? opdracht.start_tijd : opdracht.eind_tijd) || '')}">
+      </label>
+      <label class="v-km">Km-stand
+        <input type="number" step="1" min="0" inputmode="numeric" name="${p}_km" value="${(begin ? opdracht.start_km : opdracht.eind_km) != null ? (begin ? opdracht.start_km : opdracht.eind_km) : ''}">
+      </label>
+    </div>
+  </div>`;
 }
 
 // Eén opdracht-blok binnen het grote dagformulier: opdrachtgever/tarief,
@@ -1354,11 +1379,15 @@ function stopsEditorHtml(dagregels, opdrachtIndex = 0) {
 // van deze blokken samen vormen de hele dag (zie opdrachtenEditorHtml).
 function opdrachtBlokHtml(opdracht = {}, index = 0, { klanten = [], tariefafspraken = [], magTariefZien } = {}) {
   const dagregels = opdracht.dagregels || [];
-  return `<div class="kaart opdracht-blok" style="margin-bottom:1rem;padding:1rem;">
+  return `<section class="dagform-opdracht opdracht-blok">
     <input type="hidden" name="opdracht_id" value="${escapeHtml(opdracht.id || '')}" class="opdracht-id-veld">
-    <div class="stop-koptekst" style="font-weight:600;color:var(--kleur-primair);margin-bottom:0.5rem;">Opdracht <span class="opdracht-volgnummer">${index + 1}</span></div>
-    <div class="form-rij">
-      <label>Opdrachtgever
+    <div class="dagform-opdrachtkop">
+      <span class="dagform-nr groot opdracht-volgnummer">${index + 1}</span>
+      <span class="dagform-opdrachttitel">Opdracht</span>
+      <button type="button" class="btn sm ghost danger opdracht-verwijderen-knop" title="Deze opdracht verwijderen">Verwijderen</button>
+    </div>
+    <div class="dagform-velden dv-klant">
+      <label class="v-breed">Opdrachtgever
         <select name="opdracht_klant_id">
           <option value="">— Geen —</option>
           ${klanten.map((k) => optie(k.id, k.naam, opdracht.klant_id || '')).join('')}
@@ -1366,7 +1395,7 @@ function opdrachtBlokHtml(opdracht = {}, index = 0, { klanten = [], tariefafspra
       </label>
       ${
         magTariefZien
-          ? `<label>Tariefafspraak
+          ? `<label class="v-breed">Tariefafspraak
         <select name="opdracht_tariefafspraak_id">
           <option value="">— Geen —</option>
           ${tariefafspraken.map((t) => optie(t.id, t.naam, opdracht.tariefafspraak_id || '')).join('')}
@@ -1375,40 +1404,15 @@ function opdrachtBlokHtml(opdracht = {}, index = 0, { klanten = [], tariefafspra
           : ''
       }
     </div>
-
-    <h3>Begin van de opdracht</h3>
-    <div class="form-rij">
-      <label>Begintijd
-        <input type="time" name="opdracht_start_tijd" value="${escapeHtml(opdracht.start_tijd || '')}">
-      </label>
-      <label>Beginplaats
-        <input type="text" name="opdracht_start_plaats" value="${escapeHtml(opdracht.start_plaats || '')}">
-      </label>
-      <label>Beginkilometerstand
-        <input type="number" step="1" name="opdracht_start_km" value="${opdracht.start_km != null ? opdracht.start_km : ''}">
-      </label>
+    <div class="dagform-tijdlijn">
+      ${dagformPuntHtml('start', opdracht)}
+      <div class="dagform-stops">
+        <div class="dagform-puntkop"><span class="dagform-ico">${DAG_ICO.overig}</span>Stops onderweg</div>
+        ${stopsEditorHtml(dagregels, index)}
+      </div>
+      ${dagformPuntHtml('eind', opdracht)}
     </div>
-
-    <h3>Stops onderweg</h3>
-    ${stopsEditorHtml(dagregels, index)}
-
-    <h3>Einde van de opdracht</h3>
-    <div class="form-rij">
-      <label>Eindtijd
-        <input type="time" name="opdracht_eind_tijd" value="${escapeHtml(opdracht.eind_tijd || '')}">
-      </label>
-      <label>Eindplaats
-        <input type="text" name="opdracht_eind_plaats" value="${escapeHtml(opdracht.eind_plaats || '')}">
-      </label>
-      <label>Eindkilometerstand
-        <input type="number" step="1" name="opdracht_eind_km" value="${opdracht.eind_km != null ? opdracht.eind_km : ''}">
-      </label>
-    </div>
-
-    <div class="knoppenrij" style="margin-top:0.5rem;">
-      <button type="button" class="knop knop-klein knop-gevaar opdracht-verwijderen-knop">Deze opdracht verwijderen</button>
-    </div>
-  </div>`;
+  </section>`;
 }
 
 // Alle opdracht-blokken van de dag samen, plus een knop om er nog één toe te
@@ -1419,7 +1423,7 @@ function opdrachtenEditorHtml(opdrachten = [], { klanten = [], tariefafspraken =
   const blokken = lijst.map((o, i) => opdrachtBlokHtml(o, i, { klanten, tariefafspraken, magTariefZien })).join('');
   return `
     <div class="opdrachten-lijst">${blokken}</div>
-    <button type="button" class="knop opdracht-toevoegen-knop">+ Opdracht toevoegen</button>
+    <button type="button" class="btn block dagform-toevoegen opdracht-toevoegen-knop">+ Opdracht toevoegen</button>
     <template class="opdracht-blok-sjabloon">${opdrachtBlokHtml({}, 0, { klanten, tariefafspraken, magTariefZien })}</template>
     ${activiteitDatalistHtml()}`;
 }
@@ -1432,37 +1436,35 @@ function opdrachtenEditorHtml(opdrachten = [], { klanten = [], tariefafspraken =
 function volledigeDagFormHtml({ werkdag, opdrachten = [], klanten = [], tariefafspraken = [], magTariefZien, actiePrefix, isNieuw, toonDatum }) {
   const actie = isNieuw ? `${actiePrefix}/nieuw` : `${actiePrefix}/bijwerken`;
   return `
-  <form method="post" action="${actie}" class="form">
+  <form method="post" action="${actie}" class="form dagform">
     ${
       toonDatum
-        ? `<label>Datum
+        ? `<div class="dagform-velden dv-klant"><label class="v-breed">Datum
       <input type="date" name="datum" required>
-    </label>`
+    </label></div>`
         : ''
     }
 
     ${opdrachtenEditorHtml(opdrachten, { klanten, tariefafspraken, magTariefZien })}
 
-    <h3>Brandstofverbruik</h3>
-    <div class="form-rij">
-      <label>Liters verbruikt (hele dag)
-        <input type="number" step="0.1" min="0" name="liters_verbruikt" value="${werkdag && werkdag.liters_verbruikt != null ? werkdag.liters_verbruikt : ''}">
-      </label>
-    </div>
+    <section class="dagform-overig">
+      <div class="dagform-puntkop"><span class="dagform-ico">${DAG_ICO.tanken}</span>Brandstof &amp; bijzonderheden</div>
+      <div class="dagform-velden dv-overig">
+        <label>Liters getankt / verbruikt (hele dag)
+          <input type="number" step="0.1" min="0" inputmode="decimal" name="liters_verbruikt" value="${werkdag && werkdag.liters_verbruikt != null ? werkdag.liters_verbruikt : ''}">
+        </label>
+        <label>Ritnummer (optioneel)
+          <input type="text" name="ritnummer" value="${escapeHtml((werkdag && werkdag.ritnummer) || '')}">
+        </label>
+        <label class="v-breed">Opmerkingen (optioneel)
+          <input type="text" name="opmerkingen" value="${escapeHtml((werkdag && werkdag.opmerkingen) || '')}">
+        </label>
+      </div>
+    </section>
 
-    <h3>Ritnummer &amp; bijzonderheden</h3>
-    <div class="form-rij">
-      <label>Ritnummer (optioneel)
-        <input type="text" name="ritnummer" value="${escapeHtml((werkdag && werkdag.ritnummer) || '')}">
-      </label>
-      <label style="flex:1;">Opmerkingen (optioneel)
-        <input type="text" name="opmerkingen" value="${escapeHtml((werkdag && werkdag.opmerkingen) || '')}">
-      </label>
-    </div>
-
-    <div class="knoppenrij" style="margin-top:1rem;">
-      <button type="submit" class="knop knop-primair">${isNieuw ? 'Dag opslaan' : 'Wijzigingen opslaan'}</button>
-      ${!isNieuw ? `<button type="submit" formaction="${actiePrefix}/verwijderen" class="knop knop-gevaar" onclick="return confirm('Deze hele dag verwijderen?')">Dag verwijderen</button>` : ''}
+    <div class="dagform-knoppen">
+      <button type="submit" class="btn primary">${isNieuw ? 'Dag opslaan' : 'Wijzigingen opslaan'}</button>
+      ${!isNieuw ? `<button type="submit" formaction="${actiePrefix}/verwijderen" class="btn ghost danger" onclick="return confirm('Deze hele dag verwijderen?')">Dag verwijderen</button>` : ''}
     </div>
   </form>`;
 }
@@ -1488,23 +1490,26 @@ function werkdagBlokHtml(werkdag, opdrachten, totalen, opties) {
   if (!werkdag) {
     // Alleen relevant voor het live "vandaag"-blok: nog geen dag gestart.
     return `
-    <h2 style="margin-top:0;">Nieuwe dag beginnen</h2>
-    <form method="post" action="${actiePrefix}/dag/starten" class="form">
-      <label>Beginplaats
-        <input type="text" data-locatie name="start_plaats" value="${escapeHtml(standaardBeginplaats || '')}" placeholder="Waar begin je?">
-      </label>
-      <label>Kilometerstand bij vertrek
-        <input type="number" step="1" min="0" name="start_km" required>
-      </label>
-      <label>Opdrachtgever (optioneel als er een route is toegewezen)
-        <select name="klant_id">
-          <option value="">— Kies opdrachtgever —</option>
-          ${klanten.map((k) => optie(k.id, k.naam, '')).join('')}
-        </select>
-      </label>
-      <div class="knoppenrij">
-        <button type="submit" class="knop knop-primair">Nieuwe dag beginnen</button>
+    <form method="post" action="${actiePrefix}/dag/starten" class="card form dagstart">
+      <div class="dagstart-kop">
+        <span class="dagform-ico groot">${DAG_ICO.start}</span>
+        <div><h2>Nieuwe dag beginnen</h2><p class="muted">Vul in waar je vertrekt en de kilometerstand. Daarna meld je per stop je aankomst en vertrek.</p></div>
       </div>
+      <div class="dagform-velden dv-punt">
+        <label class="v-plaats">Beginplaats
+          <input type="text" data-locatie name="start_plaats" value="${escapeHtml(standaardBeginplaats || '')}" placeholder="Waar begin je?">
+        </label>
+        <label class="v-km2">Kilometerstand bij vertrek
+          <input type="number" step="1" min="0" name="start_km" required inputmode="numeric">
+        </label>
+        <label class="v-breed">Opdrachtgever <span class="muted">(optioneel als er een route is toegewezen)</span>
+          <select name="klant_id">
+            <option value="">— Kies opdrachtgever —</option>
+            ${klanten.map((k) => optie(k.id, k.naam, '')).join('')}
+          </select>
+        </label>
+      </div>
+      <button type="submit" class="btn btn-start block">Dag beginnen</button>
     </form>`;
   }
 
@@ -1639,16 +1644,39 @@ function werkdagBlokHtml(werkdag, opdrachten, totalen, opties) {
   }
 
   // Dag is niet (meer) live - vandaag maar afgerond, of een historische dag:
-  // één doorlopend formulier met alle opdracht-blokken samen.
-  return `
-  <h2 style="margin-top:0;">${kop}</h2>
-  <div class="rit-meta">${opdrachtgevers ? 'Opdrachtgever(s): ' + escapeHtml(opdrachtgevers) + ' · ' : ''}${totalenRegel}</div>
-  ${opgeslagenMelding}
-  ${
-    bewerkbaar
-      ? volledigeDagFormHtml({ werkdag, opdrachten, klanten, tariefafspraken, magTariefZien, actiePrefix, isNieuw: false, toonDatum: false })
-      : opdrachten.map((o) => opdrachtSamenvattingHtml(o)).join('')
-  }`;
+  // blauwe dagkop met de totalen, het verloop per opdracht, en daaronder
+  // (ingeklapt) het formulier om de hele dag te corrigeren.
+  const extra = [
+    totalen.diensttijdMinuten ? `Diensttijd ${formatMinuten(totalen.diensttijdMinuten)}` : '',
+    totalen.literPerKm != null ? `${String(totalen.literPerKm).replace('.', ',')} km/liter` : '',
+    werkdag.ritnummer ? `Ritnummer ${escapeHtml(werkdag.ritnummer)}` : '',
+  ].filter(Boolean);
+  const dagKopAf = `<div class="dagkop">
+      <div>
+        <div class="hero-label"><span class="hero-dot klaar"></span>${vandaag ? 'Vandaag · afgerond' : escapeHtml(langeDatum(werkdag.datum))}</div>
+        <div class="dagkop-titel">${vandaag ? 'Dag afgerond' : werkdag.status === 'bezig' ? 'Dag niet afgesloten' : 'Gewerkte dag'}${werkdag.start_tijd ? ` <span class="dagkop-tijd">${escapeHtml(werkdag.start_tijd)}${werkdag.eind_tijd ? '–' + escapeHtml(werkdag.eind_tijd) : ''}</span>` : ''}</div>
+        ${opdrachtgevers ? `<div class="dagkop-sub">${escapeHtml(opdrachtgevers)}</div>` : ''}
+      </div>
+      <div class="dagkop-cijfers">
+        <div><span>Gewerkt</span><b>${formatMinuten(totalen.nettoMinuten).replace('min', 'm')}</b></div>
+        <div><span>Gereden</span><b>${totalen.kmTotaal != null ? totalen.kmTotaal + ' km' : '—'}</b></div>
+        <div><span>Pauze</span><b>${formatMinuten(totalen.pauzeMinuten).replace('min', 'm')}</b></div>
+      </div>
+      ${extra.length ? `<div class="dagkop-extra">${extra.join('<span>·</span>')}</div>` : ''}
+    </div>`;
+  const verloop = opdrachten.length
+    ? `<section class="card dagverloop"><div class="card-head"><h2>Verloop van de dag</h2><span class="muted small">${opdrachten.length} ${opdrachten.length === 1 ? 'opdracht' : 'opdrachten'}</span></div>
+        ${opdrachten.map((o) => opdrachtSamenvattingHtml(o, { open: opdrachten.length === 1 })).join('')}
+        ${werkdag.opmerkingen ? `<div class="dagopmerking">${escapeHtml(werkdag.opmerkingen)}</div>` : ''}
+      </section>`
+    : '';
+  const correctie = bewerkbaar
+    ? `<details class="uitklap licht dagcorrectie"${opdrachten.length ? '' : ' open'}>
+        <summary><span><b>Dag corrigeren</b><span class="muted small">Tijden, plaatsen, kilometers of stops aanpassen</span></span></summary>
+        <div class="uitklap-inhoud">${volledigeDagFormHtml({ werkdag, opdrachten, klanten, tariefafspraken, magTariefZien, actiePrefix, isNieuw: false, toonDatum: false })}</div>
+      </details>`
+    : '';
+  return `${dagKopAf}${opgeslagenMelding}${verloop}${correctie}`;
 }
 
 // ---- Urenregistratie: hoofdpagina (vandaag + 2 weken historie) ----
@@ -1678,9 +1706,9 @@ export function pagUrenregistratie({
     : `<div class="card"><div class="empty">Geen dagen in de afgelopen 2 weken.</div></div>`;
 
   return `
-<div class="pagehead"><div><h1>Urenregistratie</h1><p>${vandaagWerkdag && vandaagWerkdag.status === 'bezig' ? 'Meld per stop je aankomst en vertrek.' : 'Begin je dag zodra je gaat rijden.'}</p></div></div>
+<div class="pagehead"><div><h1>Urenregistratie</h1><p>${!vandaagWerkdag ? 'Begin je dag zodra je gaat rijden.' : vandaagWerkdag.status === 'bezig' ? 'Meld per stop je aankomst en vertrek.' : 'Je dag zit erop. Klopt er iets niet? Corrigeer het hieronder.'}</p></div></div>
 ${fout ? `<div class="melding melding-fout">${escapeHtml(fout)}</div>` : ''}
-<div class="${vandaagWerkdag && vandaagWerkdag.status === 'bezig' ? 'dagblok' : 'kaart'}">
+<div class="dagblok">
   ${werkdagBlokHtml(vandaagWerkdag, vandaagOpdrachten, vandaagTotalen, {
     vandaag: true,
     bewerkbaar: true,
@@ -1691,7 +1719,7 @@ ${fout ? `<div class="melding melding-fout">${escapeHtml(fout)}</div>` : ''}
     opgeslagen,
   })}
 </div>
-<div class="card-head" style="margin:0"><h2 style="margin:0">Laatste 2 weken</h2><a href="${actiePrefix}/nieuw" class="btn sm">+ Dag toevoegen</a></div>
+<div class="card-head sectiekop"><h2>Laatste 2 weken</h2><a href="${actiePrefix}/nieuw" class="btn sm">+ Dag toevoegen</a></div>
 ${historieHtml}`;
 }
 
@@ -1709,11 +1737,10 @@ export function pagWerkdagDetail({
   opgeslagen,
 }) {
   return `
-<div class="paginakop">
-  <h1>${werkdag ? formatDatum(werkdag.datum) : 'Nieuwe dag'}</h1>
-  <a href="${terugUrl}" class="knop">← Terug</a>
+<div class="pagehead"><div><h1>${werkdag ? escapeHtml(langeDatum(werkdag.datum)).replace(/^./, (c) => c.toUpperCase()) : 'Nieuwe dag'}</h1><p>Urenregistratie</p></div>
+  <a href="${terugUrl}" class="btn sm">← Terug</a>
 </div>
-<div class="kaart">
+<div class="dagblok">
   ${werkdagBlokHtml(werkdag, opdrachten, totalen, {
     vandaag: false,
     bewerkbaar: true,
@@ -1732,12 +1759,11 @@ export function pagWerkdagDetail({
 // dag, met daarboven alleen nog een datumveld. ----
 export function pagWerkdagNieuw({ klanten = [], tariefafspraken = [], magTariefZien = false, actiePrefix, terugUrl, fout }) {
   return `
-<div class="paginakop">
-  <h1>Dag toevoegen</h1>
-  <a href="${terugUrl}" class="knop">← Terug</a>
+<div class="pagehead"><div><h1>Dag toevoegen</h1><p>Voer een complete dag achteraf in.</p></div>
+  <a href="${terugUrl}" class="btn sm">← Terug</a>
 </div>
 ${fout ? `<div class="melding melding-fout">${escapeHtml(fout)}</div>` : ''}
-<div class="kaart">
+<div class="card">
   ${volledigeDagFormHtml({
     werkdag: null,
     opdrachten: [],

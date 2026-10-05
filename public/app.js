@@ -871,8 +871,8 @@ document.addEventListener('click', (e) => {
     );
   }
 
-  document.querySelectorAll('input[data-locatie]').forEach((input) => {
-    if (input.closest('.locatie-veld')) return;
+  function maakPin(input) {
+    if (input.closest('.locatie-veld') || input.closest('template')) return;
     const wrap = document.createElement('span');
     wrap.className = 'locatie-veld';
     input.parentNode.insertBefore(wrap, input);
@@ -885,5 +885,16 @@ document.addEventListener('click', (e) => {
     knop.innerHTML = PIN;
     wrap.appendChild(knop);
     knop.addEventListener('click', () => haalLocatie(input, knop, wrap));
-  });
+  }
+  document.querySelectorAll('input[data-locatie]').forEach(maakPin);
+  // Ook velden die later worden toegevoegd (+ Stop / + Opdracht toevoegen).
+  new MutationObserver((lijst) => {
+    for (const m of lijst) {
+      m.addedNodes.forEach((n) => {
+        if (n.nodeType !== 1) return;
+        if (n.matches && n.matches('input[data-locatie]')) maakPin(n);
+        n.querySelectorAll && n.querySelectorAll('input[data-locatie]').forEach(maakPin);
+      });
+    }
+  }).observe(document.body, { childList: true, subtree: true });
 })();

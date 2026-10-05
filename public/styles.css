@@ -982,3 +982,93 @@ input[type=file]::file-selector-button:hover { background: #F3F4FF; }
 @keyframes locatie-pulse { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
 .locatie-melding { font-size: 12.5px; color: var(--muted); margin-top: 6px; line-height: 1.35; }
 .locatie-melding.fout { color: var(--bad); }
+
+/* ===== Tijd- en datumvelden: niet breder dan hun kolom (iOS) ===== */
+input[type="time"], input[type="date"] { min-width: 0; max-width: 100%; width: 100%; box-sizing: border-box; }
+@supports (-webkit-touch-callout: none) {
+  input[type="time"], input[type="date"] { -webkit-appearance: none; appearance: none; text-align: left; display: block; }
+  input[type="time"]::-webkit-date-and-time-value, input[type="date"]::-webkit-date-and-time-value { text-align: left; margin: 0; }
+}
+
+/* ===== Urenregistratie: afgeronde dag + dagformulier ===== */
+.dagkop-tijd { font-weight: 400; color: #C9D4FF; font-size: .8em; margin-left: 4px; white-space: nowrap; }
+.dagkop-extra { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 13.5px; color: #C9D4FF; border-top: 1px solid rgba(255,255,255,.14); padding-top: 12px; }
+.dagkop-extra span { opacity: .6; }
+.sectiekop { margin: 8px 0 0 !important; padding: 0 !important; }
+.sectiekop h2 { margin: 0; }
+.dagverloop .card-head { margin-bottom: 12px; }
+.dagopmerking { margin-top: 12px; padding: 10px 12px; border-radius: 10px; background: var(--warn-bg); color: var(--warn); font-size: 14px; }
+.dagcorrectie > summary > span { display: flex; flex-direction: column; gap: 2px; }
+.dagcorrectie > summary b { font-weight: 500; }
+.dagcorrectie > summary .small { font-weight: 400; }
+.uitklap-inhoud { padding: 0 20px 20px; }
+
+.dagstart { gap: 18px; }
+.dagstart-kop { display: flex; gap: 14px; align-items: flex-start; }
+.dagstart-kop h2 { margin: 0 0 4px; }
+.dagstart-kop p { margin: 0; }
+
+.dagform { gap: 14px; max-width: none !important; }
+.dagform-opdracht { border: 1px solid var(--line); border-radius: 14px; background: #fff; padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 14px; }
+.dagform-opdracht + .dagform-opdracht { margin-top: 14px; }
+.dagform-opdrachtkop { display: flex; align-items: center; gap: 10px; }
+.dagform-opdrachttitel { font-weight: 700; font-size: 17px; color: var(--basic); }
+.dagform-opdrachtkop .btn { margin-left: auto; }
+.dagform-nr { width: 26px; height: 26px; border-radius: 50%; background: var(--line-2); color: var(--ink-2); display: inline-grid; place-items: center; font-weight: 700; font-size: 13px; flex-shrink: 0; }
+.dagform-nr.groot { width: 30px; height: 30px; background: var(--basic); color: #fff; font-size: 14px; }
+.dagform-ico { width: 26px; height: 26px; border-radius: 50%; display: inline-grid; place-items: center; background: var(--accent-soft); color: var(--basic); flex-shrink: 0; }
+.dagform-ico svg { width: 15px; height: 15px; }
+.dagform-ico.groot { width: 42px; height: 42px; background: var(--ok-bg); color: var(--ok); }
+.dagform-ico.groot svg { width: 22px; height: 22px; }
+.dagform-puntkop { display: flex; align-items: center; gap: 10px; font-weight: 500; color: var(--ink); margin-bottom: 10px; }
+.dagform-punt-start .dagform-ico { background: var(--ok-bg); color: var(--ok); }
+.dagform-punt-eind .dagform-ico { background: var(--basic); color: #fff; }
+
+/* tijdlijn: verticale lijn langs begin → stops → einde */
+.dagform-tijdlijn { position: relative; display: flex; flex-direction: column; gap: 16px; }
+.dagform-tijdlijn::before { content: ""; position: absolute; left: 12px; top: 26px; bottom: 26px; width: 2px; background: var(--line); }
+.dagform-tijdlijn > * { position: relative; }
+.dagform-punt > .dagform-velden, .dagform-stops > .stops-lijst, .dagform-stops > .dagform-toevoegen { margin-left: 36px; width: calc(100% - 36px); }
+.stops-lijst { display: flex; flex-direction: column; gap: 10px; }
+.stops-lijst:empty { display: none; }
+.stops-lijst:not(:empty) + .dagform-toevoegen { margin-top: 10px; }
+
+.dagform-stop { border: 1px solid var(--line); border-radius: 12px; background: #FBFCFF; padding: 10px 12px 12px; }
+.dagform-stopkop { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.dagform-stoptitel { font-weight: 500; color: var(--ink-2); font-size: 14px; }
+.dagform-stopkop .iconbtn { margin-left: auto; width: 32px; height: 32px; }
+.dagform-toevoegen { border-style: dashed !important; color: var(--basic); background: transparent; }
+
+.dagform-velden { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px 12px; }
+.dagform-velden > label { min-width: 0; grid-column: span 2; }
+.dagform-velden > .v-breed { grid-column: 1 / -1; }
+.dv-klant > label { grid-column: span 3; }
+.dv-klant > label:only-child { grid-column: 1 / -1; }
+.dv-stop > .v-plaats, .dv-stop > .v-activiteit { grid-column: span 3; }
+.dv-punt > .v-plaats { grid-column: span 2; }
+.dv-punt > .v-km2 { grid-column: span 4; }
+.dv-overig > label { grid-column: span 3; }
+.dagform-overig { border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px 16px; background: #fff; }
+.dagform-knoppen { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+@media (max-width: 600px) {
+  .uitklap-inhoud { padding: 0 12px 14px; }
+  .dagform-opdracht { padding: 12px; border-radius: 12px; }
+  .dagform-overig { padding: 12px; }
+  .dagform-velden { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .dagform-velden > label, .dv-klant > label, .dv-overig > label { grid-column: 1 / -1; }
+  .dagform-velden > .v-tijd, .dagform-velden > .v-km { grid-column: span 1; }
+  .dv-stop > .v-plaats, .dv-stop > .v-activiteit, .dv-punt > .v-plaats, .dv-punt > .v-km2 { grid-column: 1 / -1; }
+  .dv-stop > .v-km { grid-column: 1 / -1; }
+  .dagform-tijdlijn::before { left: 12px; }
+  .dagform-punt > .dagform-velden, .dagform-stops > .stops-lijst, .dagform-stops > .dagform-toevoegen { margin-left: 0; width: 100%; }
+  .dagform-tijdlijn::before { display: none; }
+  .dagform-knoppen > .btn.primary { width: 100%; }
+  .dagform-knoppen > .btn.danger { width: 100%; }
+  .dagkop-extra { font-size: 12.5px; }
+  .dagstart-kop .dagform-ico.groot { width: 36px; height: 36px; }
+}
+
+.opdracht-samenvatting > summary { position: relative; padding-right: 36px; }
+.opdracht-samenvatting > summary::after { content: ""; position: absolute; right: 16px; top: 50%; width: 8px; height: 8px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: translateY(-60%) rotate(-45deg); transition: transform .15s; }
+.opdracht-samenvatting[open] > summary::after { transform: translateY(-75%) rotate(45deg); }

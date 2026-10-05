@@ -1,6 +1,6 @@
 # Transport Manager — De Vreugd Transport
 
-Versie 8 (8.0.0) · Node.js 22 · SQLite (`node:sqlite`) · Docker / Portainer
+Versie 9 (9.0.0) · Node.js 22 · SQLite (`node:sqlite`) · Docker / Portainer
 
 Huisstijl, inloggen en beheer zijn gelijk aan **WorkPortal** (De Vreugd
 Productietechniek), met "Transport" in het logo en zonder payoff.
@@ -25,8 +25,8 @@ TransportManager-App\
 ├── 1 Info\
 ├── 2 Oude versie's\
 ├── TransportManager\              <- hostmap = git-kopie van GitHub (niet zelf in werken)
-├── transportmanager-app-V8.zip
-└── transportmanager-app-V8\       <- uitgepakte zip (bestanden staan direct in de root)
+├── transportmanager-app-V9.zip
+└── transportmanager-app-V9\       <- uitgepakte zip (bestanden staan direct in de root)
     ├── publiceren.cmd             <- naar GitHub publiceren
     ├── Dockerfile
     ├── docker-compose.yml         <- stack voor Portainer
@@ -247,12 +247,22 @@ De module Sjablonen is in V7 verwijderd.
 
 ## Huidige locatie (pin-knop, vanaf V8)
 
-In de urenregistratie (dag starten, aankomst bij een stop, opdracht
-afsluiten, volgende opdracht) staat rechts in het plaatsveld een pin-knopje.
+In de urenregistratie staat rechts in elk plaatsveld een pin-knopje (dag
+starten, aankomst bij een stop, opdracht afsluiten, volgende opdracht, en
+vanaf V9 ook bij het corrigeren of toevoegen van een dag).
 Tik erop: de telefoon geeft de GPS-positie door (eenmalig toestemming
 geven), de app zoekt de plaats op en vult die in; het volledige adres staat
 eronder ter controle. Opzoeken gaat via OpenRouteService (ORS_API_KEY) en
 anders via OpenStreetMap. Werkt alleen via https (de echte app-URL).
+
+## Urenregistratie: afgeronde dag (vanaf V9)
+
+Een afgeronde dag toont een blauwe dagkop (gewerkt, gereden, pauze,
+diensttijd, km/liter), het verloop per opdracht (start → stops → einde) en
+een ingeklapt blok **Dag corrigeren**. Het correctieformulier is per opdracht
+opgebouwd als tijdlijn: begin (plaats, tijd, km), stops en einde, met
+daaronder brandstof en bijzonderheden. Tijdvelden passen nu ook op de
+iPhone binnen de kolom.
 
 ## Wat de app allemaal doet
 
