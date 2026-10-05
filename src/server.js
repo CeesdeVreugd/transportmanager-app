@@ -2912,9 +2912,44 @@ const server = http.createServer(async (req, res) => {
         const opdrachtenVandaag = werkdag ? haalOpdrachtenMetDetails(werkdag.id) : [];
         const totalen = berekenWerkdagTotalen(werkdag, opdrachtenVandaag);
         const week = huidigeWeekBereik();
-        const historieDezeWeek = haalWerkdagenHistorie(gebruiker.id, 7).filter((h) => h.werkdag.datum >= week.van);
-        let urenDezeWeekMinuten = historieDezeWeek.reduce((som, h) => som + h.nettoMinuten, 0);
-        if (werkdag && werkdag.datum >= week.van) urenDezeWeekMinuten += totalen.nettoMinuten;
+
+        // Per dag van deze week (ma t/m zo): netto minuten en gereden km.
+        const historie = haalWerkdagenHistorie(gebruiker.id, 7).filter((h) => h.werkdag.datum >= week.van);
+        const perDag = {};
+        for (const h of historie) {
+          const d = (perDag[h.werkdag.datum] ||= { minuten: 0, km: 0 });
+          d.minuten += h.nettoMinuten;
+          d.km += h.kmTotaal || 0;
+        }
+        if (werkdag && werkdag.datum >= week.van) {
+          const d = (perDag[werkdag.datum] ||= { minuten: 0, km: 0 });
+          d.minuten += totalen.nettoMinuten;
+          d.km += totalen.kmTotaal || 0;
+        }
+        const weekDagen = Array.from({ length: 7 }, (_, i) => {
+          const datum = addDagen(week.van, i);
+          return { datum, minuten: (perDag[datum] || {}).minuten || 0, km: (perDag[datum] || {}).km || 0, vandaag: datum === datumVandaag };
+        });
+        const urenDezeWeekMinuten = weekDagen.reduce((s2, d) => s2 + d.minuten, 0);
+        const kmDezeWeek = weekDagen.reduce((s2, d) => s2 + d.km, 0);
+        const dagenGewerkt = weekDagen.filter((d) => d.minuten > 0).length;
+
+        // Geplande ritten (gepland/onderweg) en openstaande stops uit toegewezen routes.
+        const ritten = haalRittenVoorChauffeur(gebruiker.id);
+        const openTaken = db
+          .prepare(
+            `SELECT t.id, t.type, t.adres, t.tijdvenster_van, t.tijdvenster_tot, t.status, r.datum, k.naam AS klant_naam
+             FROM taken t JOIN routes r ON r.id = t.route_id LEFT JOIN klanten k ON k.id = r.klant_id
+             WHERE r.chauffeur_id = ? AND t.status != 'afgerond' AND r.datum >= ?
+             ORDER BY r.datum, t.volgorde LIMIT 20`
+          )
+          .all(gebruiker.id, addDagen(datumVandaag, -7));
+        const openOpdracht = werkdag && werkdag.status !== 'afgerond' ? haalOpenOpdracht(werkdag.id) : null;
+        let openOpdrachtKlant = null;
+        if (openOpdracht && openOpdracht.klant_id) {
+          const k = db.prepare('SELECT naam FROM klanten WHERE id = ?').get(openOpdracht.klant_id);
+          openOpdrachtKlant = k ? k.naam : null;
+        }
 
         const uur = Number(huidigeTijd().slice(0, 2));
         const isMaandag = huidigeDagVanWeek() === 1;
@@ -2924,12 +2959,6 @@ const server = http.createServer(async (req, res) => {
           werkdag && werkdag.status === 'afgerond'
             ? begroetingEind(naam, totalen.nettoMinuten, isVrijdag)
             : begroetingStart(naam, uur, isMaandag);
-
-        const statusRegel = werkdag
-          ? werkdag.status === 'bezig'
-            ? `Aan het werk sinds ${werkdag.start_tijd || '—'} · ${formatMinutenKort(totalen.nettoMinuten)} gewerkt vandaag`
-            : `Dag afgerond · ${formatMinutenKort(totalen.nettoMinuten)} gewerkt vandaag`
-          : 'Nog niet ingeklokt vandaag';
 
         const ongelezenMeldingen = db
           .prepare('SELECT * FROM meldingen WHERE gebruiker_id = ? AND gelezen = 0 ORDER BY aangemaakt_op DESC LIMIT 10')
@@ -2944,9 +2973,18 @@ const server = http.createServer(async (req, res) => {
             gebruiker,
             inhoud: pagChauffeurDashboard({
               begroeting,
-              statusRegel,
-              netMinutenVandaag: totalen.nettoMinuten,
+              datumVandaag,
+              werkdag,
+              totalenVandaag: totalen,
+              aantalOpdrachtenVandaag: opdrachtenVandaag.length,
+              openOpdracht,
+              openOpdrachtKlant,
+              weekDagen,
               urenDezeWeekMinuten,
+              kmDezeWeek,
+              dagenGewerkt,
+              ritten,
+              openTaken,
               ongelezenMeldingen,
             }),
           })
@@ -2960,7 +2998,7 @@ const server = http.createServer(async (req, res) => {
           res,
           200,
           layout({
-            titel: 'Planning',
+            titel: 'Ritopdrachten',
             actief: 'ritopdrachten',
             gebruiker,
             inhoud: pagChauffeurRitopdrachten({ ritten }),

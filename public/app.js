@@ -734,3 +734,29 @@ document.addEventListener('DOMContentLoaded', herNummerOpdrachten);
     });
   });
 })();
+
+// ---------------------------------------------------------------------------
+// Tabellen op de telefoon als kaartjes: elke cel krijgt het kopje van zijn
+// kolom als label (data-label); de CSS toont op smalle schermen per regel
+// "label … waarde". De eerste kolom is de titel van het kaartje.
+// ---------------------------------------------------------------------------
+function maakTabellenMobiel(root) {
+  (root || document).querySelectorAll('main table:not(.calc-table):not([data-mobiel])').forEach((tabel) => {
+    const koppen = [...tabel.querySelectorAll('thead th')].map((th) => th.textContent.trim());
+    if (koppen.length < 3) return;
+    tabel.setAttribute('data-mobiel', '1');
+    tabel.classList.add('mobiel-kaarten');
+    tabel.querySelectorAll('tbody tr, tfoot tr').forEach((tr) => {
+      let kolom = 0;
+      [...tr.children].forEach((td) => {
+        const span = Number(td.getAttribute('colspan') || 1);
+        if (span >= koppen.length - 1) td.classList.add('mk-breed');
+        else td.setAttribute('data-label', koppen[kolom] || '');
+        if (td.textContent.trim().length <= 10 && !td.querySelector('form,.knop,.btn')) td.classList.add('mk-kort');
+        if (/^[—–-]?$/.test(td.textContent.trim()) && !td.querySelector('input,select,button,a,img')) td.classList.add('mk-leeg');
+        kolom += span;
+      });
+    });
+  });
+}
+document.addEventListener('DOMContentLoaded', () => maakTabellenMobiel(document));

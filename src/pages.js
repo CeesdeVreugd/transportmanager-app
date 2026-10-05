@@ -856,40 +856,187 @@ function taakKaartVoorChauffeur(t, routeDatum) {
 }
 
 // ---- Chauffeur: beginscherm ----
+// ---- Chauffeur: dashboard ("Mijn dag") in de opbouw van het WorkPortal-dashboard ----
+const DAG_KORT = ['ma', 'di', 'wo', 'do', 'vr', 'za', 'zo'];
+const MAAND_KORT = ['jan', 'feb', 'mrt', 'apr', 'mei', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
+function datumDelen(iso) {
+  const d = new Date(`${iso}T12:00:00Z`);
+  return { dag: d.getUTCDate(), maand: MAAND_KORT[d.getUTCMonth()], weekdag: DAG_KORT[(d.getUTCDay() + 6) % 7] };
+}
+function langeDatum(iso) {
+  return new Intl.DateTimeFormat('nl-NL', { timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long' }).format(new Date(`${iso}T12:00:00Z`));
+}
+function weekNummer(iso) {
+  const d = new Date(`${iso}T12:00:00Z`);
+  const dag = (d.getUTCDay() + 6) % 7;
+  d.setUTCDate(d.getUTCDate() - dag + 3);
+  const eersteDonderdag = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
+  return 1 + Math.round(((d - eersteDonderdag) / 864e5 - 3 + ((eersteDonderdag.getUTCDay() + 6) % 7)) / 7);
+}
+function urenKort(min) {
+  const m = Math.round(min || 0);
+  return `${Math.floor(m / 60)}u ${String(m % 60).padStart(2, '0')}m`;
+}
+const kmTekst = (km) => `${Math.round(km || 0).toLocaleString('nl-NL')} km`;
+const ICO = {
+  klok: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 2h6"/></svg>',
+  weg: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21L9 3M20 21L15 3M12 5v2M12 11v2M12 17v2"/></svg>',
+  truck: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 6h11v10H2zM13 9h4l4 4v3h-8"/><circle cx="6.5" cy="17.5" r="2"/><circle cx="17.5" cy="17.5" r="2"/></svg>',
+  lijst: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></svg>',
+  bel: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10 21a2 2 0 0 0 4 0"/></svg>',
+  plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
+  let: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18v.5"/></svg>',
+};
+const TAAK_LABEL = { laden: 'Laden', lossen: 'Lossen', ophalen: 'Ophalen', afleveren: 'Afleveren', pauze: 'Pauze', tanken: 'Tanken' };
+
 export function pagChauffeurDashboard({
   begroeting,
-  statusRegel,
-  netMinutenVandaag,
-  urenDezeWeekMinuten,
+  datumVandaag,
+  werkdag,
+  totalenVandaag = {},
+  aantalOpdrachtenVandaag = 0,
+  openOpdracht = null,
+  openOpdrachtKlant = null,
+  weekDagen = [],
+  urenDezeWeekMinuten = 0,
+  kmDezeWeek = 0,
+  dagenGewerkt = 0,
+  ritten = [],
+  openTaken = [],
   ongelezenMeldingen = [],
 }) {
-  const meldingenHtml = ongelezenMeldingen.length
-    ? `
-<div class="kaart" style="margin-bottom:1rem;border-color:var(--kleur-primair);">
-  <h2 style="margin-top:0;">Meldingen <span class="badge badge-onderweg">${ongelezenMeldingen.length} nieuw</span></h2>
-  ${ongelezenMeldingen
+  // ---- Vandaag ----
+  const bezig = werkdag && werkdag.status !== 'afgerond';
+  const afgerond = werkdag && werkdag.status === 'afgerond';
+  const statusTitel = bezig ? 'Aan het werk' : afgerond ? 'Dag afgerond' : 'Nog niet begonnen';
+  const statusSub = bezig
+    ? `Sinds ${escapeHtml(werkdag.start_tijd || '—')}${openOpdracht ? ` · bezig voor ${escapeHtml(openOpdrachtKlant || 'een opdracht')}` : ''}`
+    : afgerond
+      ? `Gestart om ${escapeHtml(werkdag.start_tijd || '—')}${werkdag.eind_tijd ? `, klaar om ${escapeHtml(werkdag.eind_tijd)}` : ''}`
+      : 'Start je dag in de urenregistratie zodra je begint.';
+  const actieKnop = bezig
+    ? `<a class="btn hero-btn" href="/chauffeur/uren">${ICO.klok}Naar mijn dag</a>`
+    : afgerond
+      ? `<a class="btn hero-btn" href="/chauffeur/uren">Dag bekijken</a>`
+      : `<a class="btn hero-btn" href="/chauffeur/uren">${ICO.plus}Nieuwe dag beginnen</a>`;
+  const vandaagKaart = `<section class="hero">
+  <div class="hero-hoofd">
+    <div class="hero-label"><span class="hero-dot ${bezig ? 'aan' : afgerond ? 'klaar' : ''}"></span>Vandaag</div>
+    <div class="hero-titel">${statusTitel}</div>
+    <div class="hero-sub">${statusSub}</div>
+    <div class="hero-actie">${actieKnop}</div>
+  </div>
+  <div class="hero-cijfers">
+    <div><span>Gewerkt</span><b>${urenKort(totalenVandaag.nettoMinuten)}</b></div>
+    <div><span>Gereden</span><b>${totalenVandaag.kmTotaal != null ? kmTekst(totalenVandaag.kmTotaal) : '—'}</b></div>
+    <div><span>Opdrachten</span><b>${aantalOpdrachtenVandaag}</b></div>
+  </div>
+</section>`;
+
+  // ---- Kerncijfers ----
+  const geplandeRitten = ritten.filter((r) => r.status === 'gepland');
+  const onderweg = ritten.filter((r) => r.status === 'onderweg');
+  const aantalOpen = onderweg.length + openTaken.length + (openOpdracht ? 1 : 0);
+  const eerstvolgende = geplandeRitten[0];
+  const doelMinuten = 40 * 60;
+  const pct = Math.min(100, Math.round((urenDezeWeekMinuten / doelMinuten) * 100));
+  const kpis = `<div class="grid g4 chauffeur-kpis">
+  <a class="card kpi" href="/chauffeur/weekoverzicht"><div class="kpi-ico">${ICO.klok}</div><div class="label">Uren deze week</div><div class="value">${urenKort(urenDezeWeekMinuten)}</div>
+    <div class="kpi-balk"><div style="width:${pct}%"></div></div><div class="sub">${dagenGewerkt} ${dagenGewerkt === 1 ? 'dag' : 'dagen'} gewerkt</div></a>
+  <a class="card kpi" href="/chauffeur/weekoverzicht"><div class="kpi-ico">${ICO.weg}</div><div class="label">Gereden deze week</div><div class="value">${kmTekst(kmDezeWeek)}</div>
+    <div class="sub">${dagenGewerkt ? `gem. ${kmTekst(kmDezeWeek / dagenGewerkt)} per dag` : 'nog geen kilometers'}</div></a>
+  <a class="card kpi" href="/chauffeur/ritopdrachten"><div class="kpi-ico">${ICO.truck}</div><div class="label">Geplande ritten</div><div class="value">${geplandeRitten.length}</div>
+    <div class="sub">${eerstvolgende ? `eerstvolgende ${datumDelen(eerstvolgende.datum).weekdag} ${datumDelen(eerstvolgende.datum).dag} ${datumDelen(eerstvolgende.datum).maand}` : 'niets gepland'}</div></a>
+  <a class="card kpi${aantalOpen ? ' kpi-let' : ''}" href="/chauffeur/ritopdrachten"><div class="kpi-ico">${ICO.lijst}</div><div class="label">Openstaand</div><div class="value">${aantalOpen}</div>
+    <div class="sub">${[onderweg.length ? `${onderweg.length} onderweg` : '', openTaken.length ? `${openTaken.length} ${openTaken.length === 1 ? 'stop' : 'stops'}` : '', openOpdracht ? '1 lopende opdracht' : ''].filter(Boolean).join(' · ') || 'alles afgerond'}</div></a>
+</div>`;
+
+  // ---- Deze week (staafjes per dag) ----
+  const maxMin = Math.max(8 * 60, ...weekDagen.map((d) => d.minuten));
+  const weekKaart = `<section class="card">
+  <div class="card-head"><h2>Deze week</h2><a class="small" href="/chauffeur/weekoverzicht">Weekoverzicht</a></div>
+  <div class="weekbalk">${weekDagen
+    .map((d) => {
+      const dd = datumDelen(d.datum);
+      const h = d.minuten ? Math.max(6, Math.round((d.minuten / maxMin) * 100)) : 0;
+      return `<div class="wb-dag${d.vandaag ? ' vandaag' : ''}${d.minuten ? '' : ' leeg'}">
+      <div class="wb-waarde">${d.minuten ? urenKort(d.minuten).replace(' ', '') : '–'}</div>
+      <div class="wb-kolom"><div class="wb-staaf" style="height:${h}%"></div></div>
+      <div class="wb-label">${dd.weekdag}</div>
+      <div class="wb-km">${d.km ? Math.round(d.km) + ' km' : ''}</div>
+    </div>`;
+    })
+    .join('')}</div>
+  <div class="weektotaal">
+    <div><span>Totaal gewerkt</span><b>${urenKort(urenDezeWeekMinuten)}</b></div>
+    <div><span>Gereden</span><b>${kmTekst(kmDezeWeek)}</b></div>
+    <div><span>Dagen</span><b>${dagenGewerkt}</b></div>
+  </div>
+</section>`;
+
+  // ---- Komende ritten en openstaande stops ----
+  const regels = [
+    ...ritten.map((r) => ({
+      datum: r.datum,
+      href: '/chauffeur/ritopdrachten',
+      titel: `${escapeHtml(r.ophaal_adres)} → ${escapeHtml(r.aflever_adres)}`,
+      sub: [r.klant_naam, r.kenteken].filter(Boolean).map(escapeHtml).join(' · ') || 'Rit',
+      badge: `<span class="badge badge-${r.status}">${statusLabel(r.status)}</span>`,
+    })),
+    ...openTaken.map((t) => ({
+      datum: t.datum,
+      href: `/chauffeur/taken/${t.id}`,
+      titel: `${escapeHtml(TAAK_LABEL[t.type] || t.type || 'Stop')} · ${escapeHtml(t.adres)}`,
+      sub: [t.klant_naam, t.tijdvenster_van ? `${t.tijdvenster_van}${t.tijdvenster_tot ? '–' + t.tijdvenster_tot : ''}` : ''].filter(Boolean).map(escapeHtml).join(' · ') || 'Stop uit route',
+      badge: `<span class="badge b-blue">Stop</span>`,
+    })),
+  ].sort((x, y) => (x.datum < y.datum ? -1 : x.datum > y.datum ? 1 : 0));
+  const lijstKaart = `<section class="card">
+  <div class="card-head"><h2>Komende ritten &amp; opdrachten</h2><a class="small" href="/chauffeur/ritopdrachten">Alles</a></div>
+  <div class="rows">${
+    regels
+      .slice(0, 8)
+      .map((r) => {
+        const dd = datumDelen(r.datum);
+        return `<a class="rowitem" href="${r.href}">
+      <div class="datumtegel${r.datum === datumVandaag ? ' vandaag' : ''}"><b>${dd.dag}</b><span>${dd.maand}</span></div>
+      <div class="grow"><div class="t">${r.titel}</div><div class="s">${dd.weekdag}${r.datum === datumVandaag ? ' (vandaag)' : ''} · ${r.sub}</div></div>
+      ${r.badge}
+    </a>`;
+      })
+      .join('') || '<div class="empty">Geen geplande ritten of openstaande opdrachten.</div>'
+  }</div>
+</section>`;
+
+  // ---- Meldingen ----
+  const meldingenKaart = ongelezenMeldingen.length
+    ? `<section class="card meldingen-kaart">
+  <div class="card-head"><h2>${ICO.bel}Nieuwe meldingen</h2>
+    <form method="post" action="/chauffeur/notificaties/alles-gelezen"><button class="btn ghost sm" type="submit">Alles gelezen</button></form></div>
+  <div class="rows">${ongelezenMeldingen
     .map(
-      (m) => `<div class="rit-meta" style="font-weight:600;">${escapeHtml(m.tekst)}
-      <form method="post" action="/chauffeur/notificaties/${m.id}/gelezen" class="inline-form"><button type="submit" class="knop knop-klein">Gelezen</button></form>
-    </div>`
+      (m) => `<div class="rowitem"><div class="grow"><div class="t">${escapeHtml(m.tekst)}</div><div class="s">${escapeHtml(formatDatumTijd(m.aangemaakt_op))}</div></div>
+      <form method="post" action="/chauffeur/notificaties/${m.id}/gelezen"><button type="submit" class="btn sm">Gelezen</button></form></div>`
     )
-    .join('')}
-</div>`
+    .join('')}</div>
+</section>`
     : '';
 
   return `
-<h1>${begroeting}</h1>
-${meldingenHtml}
-<div class="kaart">
-  <h2 style="margin-top:0;">Vandaag</h2>
-  <p class="rit-meta">${statusRegel}</p>
-  <div class="knoppenrij"><a href="/chauffeur/uren" class="knop knop-primair">Naar urenregistratie</a></div>
+<div class="pagehead">
+  <div><h1>${begroeting}</h1><p>${escapeHtml(langeDatum(datumVandaag))} · week ${weekNummer(datumVandaag)}</p></div>
+  <div class="actions">
+    <a class="btn" href="/chauffeur/meldingen">${ICO.let}Schade melden</a>
+    <a class="btn primary" href="/chauffeur/uren">${ICO.klok}Urenregistratie</a>
+  </div>
 </div>
-<div class="kaart">
-  <h2 style="margin-top:0;">Deze week gewerkt</h2>
-  <p class="rit-meta">${formatMinuten(urenDezeWeekMinuten)}</p>
-</div>
-<div class="knoppenrij"><a href="/chauffeur/ritopdrachten" class="knop">Naar planning</a></div>`;
+${meldingenKaart}
+${vandaagKaart}
+${kpis}
+<div class="grid g2 stack">
+${lijstKaart}
+${weekKaart}
+</div>`;
 }
 
 // ---- Chauffeur: Ritopdrachten (losse ritten van de planner) ----
@@ -919,7 +1066,7 @@ export function pagChauffeurRitopdrachten({ ritten = [] }) {
     : `<div class="leeg">Geen losse ritten gepland.</div>`;
 
   return `
-<h1>Planning</h1>
+<div class="pagehead"><div><h1>Ritopdrachten</h1><p>Jouw geplande en lopende ritten</p></div></div>
 ${ritKaarten}`;
 }
 

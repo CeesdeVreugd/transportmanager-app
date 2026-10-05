@@ -1,6 +1,6 @@
 # Transport Manager — De Vreugd Transport
 
-Versie 5 (5.0.0) · Node.js 22 · SQLite (`node:sqlite`) · Docker / Portainer
+Versie 6 (6.0.0) · Node.js 22 · SQLite (`node:sqlite`) · Docker / Portainer
 
 Huisstijl, inloggen en beheer zijn gelijk aan **WorkPortal** (De Vreugd
 Productietechniek), met "Transport" in het logo en zonder payoff.
@@ -25,8 +25,8 @@ TransportManager-App\
 ├── 1 Info\
 ├── 2 Oude versie's\
 ├── TransportManager\              <- hostmap = git-kopie van GitHub (niet zelf in werken)
-├── transportmanager-app-V5.zip
-└── transportmanager-app-V5\       <- uitgepakte zip (bestanden staan direct in de root)
+├── transportmanager-app-V6.zip
+└── transportmanager-app-V6\       <- uitgepakte zip (bestanden staan direct in de root)
     ├── publiceren.cmd             <- naar GitHub publiceren
     ├── Dockerfile
     ├── docker-compose.yml         <- stack voor Portainer
@@ -206,6 +206,19 @@ Aan te passen in **Beheer → Rechten per functierol**. Beheer heeft verder
 de tabbladen Gebruikers (met apparaten afmelden), Instellingen (verifiëren,
 vergrendelen, pincodelengte, testmail, status koppelingen), Back-ups en
 Logboek.
+
+## Chauffeursdashboard (Mijn dag)
+
+Opgebouwd als het WorkPortal-dashboard: begroeting met datum en weeknummer,
+een blauwe kaart *Vandaag* (status, sinds wanneer, voor welke opdrachtgever,
+gewerkt / gereden / opdrachten vandaag), vier tegels (uren deze week met
+balk t.o.v. 40 uur, gereden km deze week, geplande ritten, openstaand),
+*Komende ritten & opdrachten* (ritten én openstaande stops uit routes) en
+*Deze week* (staafjes per dag met uren en km, plus weektotaal).
+
+Op de telefoon worden tabellen automatisch kaartjes (label links, waarde
+rechts; lege waarden verborgen), staan formuliervelden en knoppen onder
+elkaar over de volle breedte en hebben tussenkopjes vaste ruimte.
 
 ## Klant zoeken en direct aanmaken
 
