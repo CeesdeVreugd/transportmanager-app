@@ -1,6 +1,6 @@
 # Transport Manager — De Vreugd Transport
 
-Versie 6 (6.0.0) · Node.js 22 · SQLite (`node:sqlite`) · Docker / Portainer
+Versie 7 (7.0.0) · Node.js 22 · SQLite (`node:sqlite`) · Docker / Portainer
 
 Huisstijl, inloggen en beheer zijn gelijk aan **WorkPortal** (De Vreugd
 Productietechniek), met "Transport" in het logo en zonder payoff.
@@ -25,8 +25,8 @@ TransportManager-App\
 ├── 1 Info\
 ├── 2 Oude versie's\
 ├── TransportManager\              <- hostmap = git-kopie van GitHub (niet zelf in werken)
-├── transportmanager-app-V6.zip
-└── transportmanager-app-V6\       <- uitgepakte zip (bestanden staan direct in de root)
+├── transportmanager-app-V7.zip
+└── transportmanager-app-V7\       <- uitgepakte zip (bestanden staan direct in de root)
     ├── publiceren.cmd             <- naar GitHub publiceren
     ├── Dockerfile
     ├── docker-compose.yml         <- stack voor Portainer
@@ -187,7 +187,7 @@ alle rechten. Wie de rol Chauffeur heeft, kan aan ritten worden gekoppeld.
 | Module | Administratie | Directie | Planning | Chauffeur |
 |---|---|---|---|---|
 | Mijn werk (ritopdrachten, uren, meldingen) | Geen | Bewerken | Bewerken | Bewerken |
-| Planning (dashboard, ritten, sjablonen) | Lezen | Beheer | Beheer | Geen |
+| Planning (dashboard & ritten) | Lezen | Beheer | Beheer | Geen |
 | Weekoverzicht, financieel & prijscalculator | Beheer | Beheer | Bewerken | Geen |
 | Wagenpark (voertuigen & incidenten) | Lezen | Beheer | Beheer | Geen |
 | Relaties (klanten & tarieven) | Beheer | Beheer | Bewerken | Geen |
@@ -222,7 +222,7 @@ elkaar over de volle breedte en hebben tussenkopjes vaste ruimte.
 
 ## Klant zoeken en direct aanmaken
 
-Overal waar een klant / opdrachtgever gekozen wordt (rit, sjabloon,
+Overal waar een klant / opdrachtgever gekozen wordt (rit,
 urenregistratie, dagstaat) staat een zoekveld: typ een deel van de naam en
 kies. Wie het recht **Bewerken op Relaties** heeft (standaard Directie,
 Planning, Administratie en beheerders), ziet onderaan de lijst
@@ -230,13 +230,29 @@ Planning, Administratie en beheerders), ziet onderaan de lijst
 Adres, contactgegevens en tariefafspraken vul je later aan bij Klanten.
 Chauffeurs kunnen wel zoeken, maar geen klanten aanmaken.
 
+## Ritopdrachten voor de chauffeur (vanaf V7)
+
+De chauffeur ziet zijn ritten onder **Ritten** met twee tabbladen:
+**Actief** (lopende ritten en ritten van vandaag) en **Gepland** (komende
+dagen). Elke rit is een kaart met Rit ID (oplopend ritnummer vanaf 1001),
+naam, opdrachtgever, voertuig en aantal stops, een groene knop **Start met
+de rit** en daaronder de genummerde stops (START, LADEN, LOSSEN) met adres,
+tijdvenster en opmerking. De ronde blauwe pijl opent de navigatie
+(Google Maps) naar die stop. Tijdens de rit rondt de chauffeur elke stop
+af (per ongeluk afgerond? tik nogmaals om ongedaan te maken); de volgende
+stop wordt gemarkeerd. Oude ritten met alleen een ophaal- en afleveradres
+krijgen automatisch twee stops.
+
+De module Sjablonen is in V7 verwijderd.
+
 ## Wat de app allemaal doet
 
 **Planner (menu links, in groepen):**
 
-- **Planning** — Dashboard, Ritten, Routes (met taken per route, kaart en
-  automatische volgorde-optimalisatie), Sjablonen (vaste/terugkerende
-  ritten met één klik opnieuw inplannen).
+- **Planning** — Dashboard, Ritten (met naam, starttijd, startplaats en
+  een lijst stops: laden/lossen/overig, per stop een adres, tijdvenster en
+  opmerking voor de chauffeur), Routes (met taken per route, kaart en
+  automatische volgorde-optimalisatie).
 - **Overzichten** — Weekoverzicht (factureerbaar bedrag per opdrachtgever
   per week, met Excel/CSV-export), Financieel (kostprijs/klantprijs/marge
   per rit), Prijscalculator (kostprijs en voorstel-klantprijs berekenen).

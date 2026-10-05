@@ -49,7 +49,7 @@ export function icoon(naam) {
   return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONEN[naam] || ''}</svg>`;
 }
 
-export const APP_VERSIE = '6.0.0';
+export const APP_VERSIE = '7.0.0';
 
 function kanModule(gebruiker, module) {
   return !!gebruiker && ((gebruiker.rechten || {})[module] || 0) >= 1;
@@ -69,7 +69,6 @@ function menuGroepen(gebruiker) {
     ['Planning', [
       ...(mijnwerk ? [['/planner/dashboard', 'Bedrijfsdashboard', 'nacalculatie', 'bedrijfsdashboard', 'planning']] : []),
       ['/planner', 'Ritten', 'truck', 'ritten', 'planning'],
-      ['/planner/sjablonen', 'Sjablonen', 'kopie', 'sjablonen', 'planning'],
     ]],
     ['Overzichten & financiën', [
       ['/planner/week-uitdraai', 'Weekoverzicht', 'kalender', 'week-uitdraai', 'overzichten'],
@@ -117,7 +116,7 @@ function onderbalkHtml(gebruiker, actief) {
   const opties = [
     ['/chauffeur/ritopdrachten', 'Ritten', 'route', ['ritopdrachten'], 'mijnwerk'],
     ['/chauffeur/uren', 'Uren', 'timer', ['urenregistratie'], 'mijnwerk'],
-    ['/planner', 'Planning', 'truck', ['ritten', 'sjablonen', 'bedrijfsdashboard'], 'planning'],
+    ['/planner', 'Planning', 'truck', ['ritten', 'bedrijfsdashboard'], 'planning'],
     ['/chauffeur/meldingen', 'Meldingen', 'waarschuwing', ['meldingen'], 'mijnwerk'],
     ['/planner/voertuigen', 'Wagenpark', 'truck', ['voertuigen', 'incidenten'], 'wagenpark'],
     ['/planner/klanten', 'Klanten', 'klanten', ['klanten', 'tarieven'], 'relaties'],

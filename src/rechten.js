@@ -15,7 +15,7 @@ export const NIVEAU_NAMEN = { 0: 'Geen', 1: 'Lezen', 2: 'Bewerken', 3: 'Beheer' 
 
 export const MODULES = [
   ['mijnwerk', 'Mijn werk (ritopdrachten, uren, meldingen)'],
-  ['planning', 'Planning (dashboard, ritten, sjablonen)'],
+  ['planning', 'Planning (dashboard & ritten)'],
   ['overzichten', 'Weekoverzicht, financieel & prijscalculator'],
   ['wagenpark', 'Wagenpark (voertuigen & incidenten)'],
   ['relaties', 'Relaties (klanten & tarieven)'],

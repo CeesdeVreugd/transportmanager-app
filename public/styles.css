@@ -832,3 +832,135 @@ input[type=file]::file-selector-button:hover { background: #F3F4FF; }
   th, td { padding-left: 12px; padding-right: 12px; }
 }
 @media (min-width: 601px) { td.mk-kort { white-space: nowrap; } }
+
+/* ===== Ritopdrachten (chauffeur) ===== */
+.rit-tabs { align-self: stretch; display: grid; grid-template-columns: 1fr 1fr; }
+.rit-tabs a { justify-content: center; text-transform: uppercase; letter-spacing: .06em; font-size: 14px; }
+.tab-aantal { display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 7px; border-radius: 999px; background: var(--line-2); color: var(--ink-2); font-size: 12px; letter-spacing: 0; }
+.rit-tabs a.active .tab-aantal { background: rgba(255,255,255,.2); color: #fff; }
+.ritkaart { padding: 0; overflow: hidden; scroll-margin-top: 80px; }
+.ritkaart.is-onderweg { border-color: #BCDDFF; box-shadow: 0 0 0 3px #E6F2FF; }
+.ritkaart-kop { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 18px 20px 6px; }
+.ritkaart-titel { font-size: 18px; font-weight: 700; color: var(--basic); line-height: 1.25; }
+.ritkaart-info { display: grid; grid-template-columns: 120px 1fr; gap: 4px 14px; margin: 6px 20px 14px; font-size: 14.5px; }
+.ritkaart-info dt { color: var(--muted); }
+.ritkaart-info dd { margin: 0; color: var(--ink); }
+.ritkaart-opmerking { margin: 0 20px 14px; padding: 10px 12px; border-radius: 10px; background: var(--warn-bg); color: #5C3205; font-size: 14px; }
+.ritkaart-actie { padding: 0 20px 16px; }
+.ritkaart-voortgang { padding: 0 20px 14px; }
+.rv-tekst { font-size: 14px; color: var(--ink-2); }
+.rv-tekst b { color: var(--basic); }
+.ritkaart-voet { padding: 4px 20px 16px; display: flex; justify-content: flex-end; }
+.btn.btn-start { background: #1FA35B; border-color: #1FA35B; color: #fff; height: 52px; font-size: 17px; font-weight: 700; border-radius: 12px; }
+.btn.btn-start:hover { background: #16733F; border-color: #16733F; color: #fff; }
+
+.stoplijst { list-style: none; margin: 0; padding: 4px 0 6px; border-top: 1px solid var(--line); }
+.stop { display: grid; grid-template-columns: 34px minmax(0, 1fr) 48px; gap: 4px 14px; align-items: start; padding: 14px 20px; position: relative; }
+.stop + .stop { border-top: 1px solid var(--line-2); }
+.stop-ico { width: 34px; height: 34px; border-radius: 50%; background: var(--line-2); color: var(--muted); display: grid; place-items: center; position: relative; z-index: 1; }
+.stop-ico svg { width: 17px; height: 17px; }
+.stop-start .stop-ico { background: #E6F6EC; color: #16733F; }
+.stop-laden .stop-ico { background: var(--accent-soft); color: var(--basic); }
+.stop-lossen .stop-ico { background: #FEEFE5; color: #B24E0C; }
+.stop-label { font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); display: flex; align-items: center; gap: 8px; min-height: 18px; }
+.stop-start .stop-label { color: #16733F; }
+.stop-titel { font-size: 17px; font-weight: 700; color: var(--ink); margin-top: 2px; line-height: 1.3; overflow-wrap: anywhere; }
+.stop-adres, .stop-meta { font-size: 14.5px; color: var(--ink-2); margin-top: 3px; overflow-wrap: anywhere; }
+.stop-meta { color: var(--muted); }
+.stop-opmerking { font-size: 14px; color: #5C3205; background: var(--warn-bg); border-radius: 8px; padding: 6px 10px; margin-top: 8px; }
+.stop-nav { width: 48px; height: 48px; border-radius: 50%; background: var(--basic); color: #fff; display: grid; place-items: center; align-self: center; box-shadow: 0 4px 12px rgba(10,10,150,.25); text-decoration: none; }
+.stop-nav:hover { background: var(--accent); color: #fff; }
+.stop-nav svg { width: 22px; height: 22px; }
+.stop-actie { margin-top: 10px; }
+.stop-actie .btn svg { width: 16px; height: 16px; }
+.stop-klaar { display: inline-flex; align-items: center; gap: 6px; border: 0; background: var(--ok-bg); color: var(--ok); border-radius: 999px; padding: 5px 12px; font: 500 13.5px var(--font); cursor: pointer; }
+.stop-klaar svg { width: 15px; height: 15px; }
+.stop.klaar .stop-ico { background: var(--ok-bg); color: var(--ok); }
+.stop.klaar .stop-titel, .stop.klaar .stop-adres, .stop.klaar .stop-meta { color: var(--muted); }
+.stop.klaar .stop-nav { background: var(--line-2); color: var(--muted); box-shadow: none; }
+.stop.volgende { background: #F5F9FF; }
+.stop.volgende .stop-ico { background: var(--basic); color: #fff; }
+.stop-volgende { background: var(--accent); color: #fff; border-radius: 999px; padding: 1px 8px; font-size: 10.5px; letter-spacing: .06em; }
+@media (max-width: 600px) {
+  .ritkaart-kop { padding: 14px 14px 4px; }
+  .ritkaart-titel { font-size: 16.5px; }
+  .ritkaart-info { margin: 4px 14px 12px; grid-template-columns: 100px 1fr; font-size: 14px; }
+  .ritkaart-opmerking, .ritkaart-actie, .ritkaart-voortgang { margin-left: 14px; margin-right: 14px; padding-left: 0; padding-right: 0; }
+  .ritkaart-voet { padding: 4px 14px 14px; }
+  .stop { padding: 12px 14px; grid-template-columns: 30px minmax(0, 1fr) 44px; gap: 2px 12px; }
+  .stop-ico { width: 30px; height: 30px; }
+  .stop-titel { font-size: 16px; }
+  .stop-nav { width: 44px; height: 44px; }
+}
+
+/* ===== Ritformulier: stops ===== */
+.ritstops { display: flex; flex-direction: column; gap: 12px; }
+.ritstops-kop h2 { margin: 6px 0 2px; }
+.ritstops-lijst { display: flex; flex-direction: column; gap: 10px; counter-reset: ritstop; }
+.ritstop-rij { border: 1px solid var(--line); border-radius: 12px; background: #FBFCFF; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.ritstop-kop { display: flex; align-items: center; gap: 10px; }
+.ritstop-nr { width: 28px; height: 28px; border-radius: 50%; background: var(--basic); color: #fff; display: grid; place-items: center; font-weight: 700; font-size: 13px; flex-shrink: 0; }
+.ritstop-type { width: auto !important; min-width: 130px; height: 38px !important; }
+.ritstop-knoppen { margin-left: auto; display: flex; gap: 6px; }
+.ritstop-knoppen .iconbtn { font-size: 12px; }
+.ritstop-velden { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px 12px; }
+.ritstop-velden > label { grid-column: span 3; }
+.ritstop-velden > label:nth-child(3), .ritstop-velden > label:nth-child(4), .ritstop-velden > label:nth-child(5) { grid-column: span 2; }
+.ritstop-velden > .ritstop-breed { grid-column: 1 / -1; }
+@media (max-width: 600px) {
+  .ritstop-velden { grid-template-columns: 1fr 1fr; }
+  .ritstop-velden > label, .ritstop-velden > label:nth-child(n) { grid-column: 1 / -1; }
+  .ritstop-velden > label:nth-child(4), .ritstop-velden > label:nth-child(5) { grid-column: span 1; }
+}
+
+/* ===== Urenregistratie: dagoverzicht ===== */
+.dagblok { display: flex; flex-direction: column; gap: 16px; }
+.dagkop { background: var(--basic); color: #fff; border-radius: 16px; padding: 18px 20px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px 24px; align-items: center; }
+.dagkop-titel { font-size: 22px; font-weight: 700; margin-top: 4px; }
+.dagkop-sub { color: #C9D4FF; margin-top: 2px; }
+.dagkop-cijfers { display: grid; grid-template-columns: repeat(3, auto); gap: 6px; }
+.dagkop-cijfers > div { background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.14); border-radius: 12px; padding: 10px 14px; min-width: 96px; }
+.dagkop-cijfers span { display: block; font-size: 12px; color: #C9D4FF; }
+.dagkop-cijfers b { display: block; font-size: 18px; white-space: nowrap; }
+.dagopdracht { padding: 0; overflow: hidden; }
+.dagopdracht > .card-head { padding: 18px 20px 12px; margin: 0; align-items: flex-start; }
+.dagstops .stop { grid-template-columns: 34px minmax(0, 1fr); }
+.stop-pauze .stop-ico, .stop-tanken .stop-ico { background: var(--warn-bg); color: var(--warn); }
+.stop-eind .stop-ico { background: var(--basic); color: #fff; }
+.stop-eind.klaar .stop-titel { color: var(--ink); }
+.stop-meta b { color: var(--accent); }
+.dagstops .stop-bewerken { margin-top: 6px; }
+.actievak { margin: 0; padding: 16px 20px 18px; border-top: 1px solid var(--line); background: #F7FAFF; display: flex; flex-direction: column; gap: 12px; max-width: none !important; }
+.actievak h3 { margin: 0; }
+.actievak-tekst { color: var(--ink-2); }
+.activiteit-keuze { display: flex; flex-wrap: wrap; gap: 8px; }
+.activiteit-keuze .fchip { cursor: pointer; font: 500 14px var(--font); }
+.activiteit-keuze .fchip.active { background: var(--basic); color: #fff; border-color: var(--basic); }
+.uitklap { border-top: 1px solid var(--line); }
+.uitklap > summary { list-style: none; cursor: pointer; padding: 14px 20px; font-weight: 500; color: var(--basic); display: flex; align-items: center; justify-content: space-between; }
+.uitklap > summary::-webkit-details-marker { display: none; }
+.uitklap > summary::after { content: "›"; font-size: 20px; transition: transform .15s; color: var(--muted); }
+.uitklap[open] > summary::after { transform: rotate(90deg); }
+.uitklap > form { padding: 0 20px 18px; max-width: none !important; }
+.uitklap.licht { border: 1px solid var(--line); border-radius: var(--radius); background: #fff; }
+.opdracht-samenvatting { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.opdracht-samenvatting + .opdracht-samenvatting { margin-top: 10px; }
+.opdracht-samenvatting > summary { list-style: none; cursor: pointer; padding: 12px 14px; display: block; }
+.opdracht-samenvatting > summary::-webkit-details-marker { display: none; }
+.os-titel { font-weight: 500; color: var(--basic); }
+.os-meta { font-size: 13.5px; color: var(--muted); margin-top: 2px; }
+.opdracht-samenvatting .stoplijst { border-top: 1px solid var(--line-2); }
+@media (max-width: 900px) {
+  .dagkop { grid-template-columns: 1fr; padding: 16px; }
+  .dagkop-cijfers { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .dagkop-cijfers > div { min-width: 0; padding: 8px 10px; }
+}
+@media (max-width: 600px) {
+  .dagkop-titel { font-size: 19px; }
+  .dagkop-cijfers b { font-size: 15.5px; }
+  .dagopdracht > .card-head { padding: 14px 14px 10px; }
+  .actievak { padding: 14px; }
+  .uitklap > summary { padding: 12px 14px; }
+  .uitklap > form { padding: 0 14px 14px; }
+  .dagstops .stop { grid-template-columns: 30px minmax(0, 1fr); }
+}

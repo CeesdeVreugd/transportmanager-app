@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import db, { hashWachtwoord, nieuweId, zorgVoorEersteBeheerder } from './db.js';
+import db, { hashWachtwoord, nieuweId, zorgVoorEersteBeheerder, volgendRitnummer } from './db.js';
 import { huidigeGebruiker, behandelInloggen, meldAlleApparatenAf, stuurWelkomstmail, logActie } from './inloggen.js';
 import { kan, vereisteVoorPad, synchroniseerRolKolom } from './rechten.js';
 import { behandelBeheer, beheerTabs } from './beheer.js';
@@ -53,8 +53,6 @@ import {
   pagIncidenten,
   pagDashboard,
   pagPrijscalculator,
-  pagSjablonenOverzicht,
-  pagSjabloonFormulier,
   pagBackups,
   pagOneDriveKoppelen,
   HERINNERING_TYPE_LABEL,
@@ -162,7 +160,8 @@ function serveerStatischBestand(req, res, pathname) {
 // ---- Data-helpers ----
 function haalRitten({ datum } = {}) {
   const basisQuery = `
-    SELECT r.*, k.naam AS klant_naam, v.kenteken AS kenteken, c.naam AS chauffeur_naam
+    SELECT r.*, k.naam AS klant_naam, v.kenteken AS kenteken, c.naam AS chauffeur_naam,
+      (SELECT COUNT(*) FROM rit_stops st WHERE st.rit_id = r.id) AS aantal_stops
     FROM ritten r
     LEFT JOIN klanten k ON k.id = r.klant_id
     LEFT JOIN voertuigen v ON v.id = r.voertuig_id
@@ -400,7 +399,7 @@ function slaRitPrijsOp(ritId, v) {
 function haalRittenVoorChauffeur(chauffeurId) {
   return db
     .prepare(
-      `SELECT r.*, k.naam AS klant_naam, v.kenteken AS kenteken
+      `SELECT r.*, k.naam AS klant_naam, v.kenteken AS kenteken, v.omschrijving AS voertuig_omschrijving
        FROM ritten r
        LEFT JOIN klanten k ON k.id = r.klant_id
        LEFT JOIN voertuigen v ON v.id = r.voertuig_id
@@ -408,6 +407,73 @@ function haalRittenVoorChauffeur(chauffeurId) {
        ORDER BY r.datum, r.aangemaakt_op`
     )
     .all(chauffeurId);
+}
+
+// ---- Stops van een rit ----
+// Een rit heeft stops (laden/lossen/overig). Ritten van vóór deze uitbreiding
+// hebben er nog geen: dan tonen we het ophaal- en afleveradres als stop 1 en 2
+// ("virtueel"); bij het starten van de rit worden die echte stops.
+function haalRitStops(rit) {
+  const stops = db.prepare('SELECT * FROM rit_stops WHERE rit_id = ? ORDER BY volgorde, rowid').all(rit.id);
+  if (stops.length) return stops;
+  return [
+    { id: null, type: 'laden', naam: null, adres: rit.ophaal_adres, datum: rit.datum, status: rit.status === 'afgerond' ? 'afgerond' : 'open', virtueel: true },
+    { id: null, type: 'lossen', naam: null, adres: rit.aflever_adres, datum: rit.datum, status: rit.status === 'afgerond' ? 'afgerond' : 'open', virtueel: true },
+  ].filter((x) => x.adres);
+}
+
+function maakStopsEchtIndienNodig(rit) {
+  const n = db.prepare('SELECT COUNT(*) AS n FROM rit_stops WHERE rit_id = ?').get(rit.id).n;
+  if (n) return;
+  const ins = db.prepare('INSERT INTO rit_stops (id, rit_id, volgorde, type, adres, datum) VALUES (?, ?, ?, ?, ?, ?)');
+  if (rit.ophaal_adres) ins.run(nieuweId(), rit.id, 0, 'laden', rit.ophaal_adres, rit.datum);
+  if (rit.aflever_adres) ins.run(nieuweId(), rit.id, 1, 'lossen', rit.aflever_adres, rit.datum);
+}
+
+// Stops uit het ritformulier (herhaalde velden stop_*), in volgorde.
+function verzamelRitStops(v) {
+  const alle = (veld) => (v._raw ? v._raw.getAll(veld) : []);
+  const ids = alle('stop_id');
+  const types = alle('stop_type');
+  const namen = alle('stop_naam');
+  const adressen = alle('stop_adres');
+  const datums = alle('stop_datum');
+  const vans = alle('stop_van');
+  const tots = alle('stop_tot');
+  const opm = alle('stop_opmerking');
+  const stops = [];
+  adressen.forEach((adres, i) => {
+    if (!String(adres || '').trim()) return;
+    stops.push({
+      id: ids[i] || null,
+      type: ['laden', 'lossen', 'overig'].includes(types[i]) ? types[i] : 'overig',
+      naam: (namen[i] || '').trim() || null,
+      adres: adres.trim(),
+      datum: datums[i] || null,
+      tijd_van: vans[i] || null,
+      tijd_tot: tots[i] || null,
+      opmerking: (opm[i] || '').trim() || null,
+    });
+  });
+  return stops;
+}
+
+function slaRitStopsOp(ritId, stops) {
+  const bestaand = Object.fromEntries(db.prepare('SELECT * FROM rit_stops WHERE rit_id = ?').all(ritId).map((r) => [r.id, r]));
+  const bewaardeIds = new Set();
+  stops.forEach((st, i) => {
+    if (st.id && bestaand[st.id]) {
+      bewaardeIds.add(st.id);
+      db.prepare('UPDATE rit_stops SET volgorde=?, type=?, naam=?, adres=?, datum=?, tijd_van=?, tijd_tot=?, opmerking=? WHERE id=?').run(
+        i, st.type, st.naam, st.adres, st.datum, st.tijd_van, st.tijd_tot, st.opmerking, st.id
+      );
+    } else {
+      db.prepare(
+        'INSERT INTO rit_stops (id, rit_id, volgorde, type, naam, adres, datum, tijd_van, tijd_tot, opmerking) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      ).run(nieuweId(), ritId, i, st.type, st.naam, st.adres, st.datum, st.tijd_van, st.tijd_tot, st.opmerking);
+    }
+  });
+  for (const id of Object.keys(bestaand)) if (!bewaardeIds.has(id)) db.prepare('DELETE FROM rit_stops WHERE id = ?').run(id);
 }
 
 // ---- Dagregistratie (werkdagen/dagregels) & taakafhandeling voor chauffeurs ----
@@ -1642,10 +1708,14 @@ const server = http.createServer(async (req, res) => {
         );
       }
 
-      const laadFormulierData = () => ({
+      // De al toegewezen chauffeur (en voertuig) blijven altijd kiesbaar, ook als die
+      // persoon geen chauffeursrol (meer) heeft — anders gaat de koppeling bij opslaan verloren.
+      const laadFormulierData = (rit = null) => ({
         klanten: db.prepare('SELECT * FROM klanten ORDER BY naam').all(),
-        voertuigen: db.prepare('SELECT * FROM voertuigen WHERE actief = 1 ORDER BY kenteken').all(),
-        chauffeurs: db.prepare("SELECT * FROM gebruikers WHERE rol = 'chauffeur' AND actief = 1 AND verwijderd = 0 ORDER BY naam").all(),
+        voertuigen: db.prepare('SELECT * FROM voertuigen WHERE actief = 1 OR id = ? ORDER BY kenteken').all(rit?.voertuig_id || ''),
+        chauffeurs: db
+          .prepare("SELECT * FROM gebruikers WHERE (rol = 'chauffeur' AND actief = 1 AND verwijderd = 0) OR id = ? ORDER BY naam")
+          .all(rit?.chauffeur_id || ''),
         toltarieven: haalToltarieven({ alleenActief: true }),
         margePercentage: haalInstellingen().marge_percentage,
         routeBerekeningActief: routeBerekeningActief(),
@@ -1666,6 +1736,11 @@ const server = http.createServer(async (req, res) => {
 
       if (methode === 'POST' && pathname === '/planner/ritten/nieuw') {
         const v = await leesFormulier(req);
+        const stops = verzamelRitStops(v);
+        if (stops.length) {
+          v.ophaal_adres = stops[0].adres;
+          v.aflever_adres = stops[stops.length - 1].adres;
+        }
         if (!v.datum || !v.ophaal_adres || !v.aflever_adres) {
           return stuurHtml(
             res,
@@ -1678,15 +1753,16 @@ const server = http.createServer(async (req, res) => {
                 rit: v,
                 geselecteerdeTolIds: alleWaarden(v, 'tol_ids'),
                 ...laadFormulierData(),
-                fout: 'Vul minimaal datum, ophaaladres en afleveradres in.',
+                fout: 'Vul minimaal een datum en één stop met adres in.',
+                stops,
               }),
             })
           );
         }
         const ritId = nieuweId();
         db.prepare(
-          `INSERT INTO ritten (id, datum, ophaal_adres, aflever_adres, klant_id, voertuig_id, chauffeur_id, status, opmerkingen)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO ritten (id, datum, ophaal_adres, aflever_adres, klant_id, voertuig_id, chauffeur_id, status, opmerkingen, naam, start_tijd, start_plaats, ritnummer)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).run(
           ritId,
           v.datum,
@@ -1696,8 +1772,13 @@ const server = http.createServer(async (req, res) => {
           v.voertuig_id || null,
           v.chauffeur_id || null,
           v.status || 'gepland',
-          v.opmerkingen || null
+          v.opmerkingen || null,
+          (v.naam || '').trim() || null,
+          v.start_tijd || null,
+          (v.start_plaats || '').trim() || null,
+          volgendRitnummer()
         );
+        slaRitStopsOp(ritId, stops);
         slaRitPrijsOp(ritId, v);
         return redirect(res, '/planner');
       }
@@ -1718,8 +1799,9 @@ const server = http.createServer(async (req, res) => {
               gebruiker,
               inhoud: pagRitFormulier({
                 rit: bestaandeRit,
+                stops: haalRitStops(bestaandeRit),
                 geselecteerdeTolIds: haalGeselecteerdeTolIds(ritId),
-                ...laadFormulierData(),
+                ...laadFormulierData(bestaandeRit),
               }),
             })
           );
@@ -1727,6 +1809,11 @@ const server = http.createServer(async (req, res) => {
 
         if (methode === 'POST') {
           const v = await leesFormulier(req);
+          const stops = verzamelRitStops(v);
+          if (stops.length) {
+            v.ophaal_adres = stops[0].adres;
+            v.aflever_adres = stops[stops.length - 1].adres;
+          }
           if (!v.datum || !v.ophaal_adres || !v.aflever_adres) {
             return stuurHtml(
               res,
@@ -1738,14 +1825,16 @@ const server = http.createServer(async (req, res) => {
                 inhoud: pagRitFormulier({
                   rit: { ...bestaandeRit, ...v },
                   geselecteerdeTolIds: alleWaarden(v, 'tol_ids'),
-                  ...laadFormulierData(),
-                  fout: 'Vul minimaal datum, ophaaladres en afleveradres in.',
+                  ...laadFormulierData(bestaandeRit),
+                  fout: 'Vul minimaal een datum en één stop met adres in.',
+                  stops,
                 }),
               })
             );
           }
           db.prepare(
-            `UPDATE ritten SET datum=?, ophaal_adres=?, aflever_adres=?, klant_id=?, voertuig_id=?, chauffeur_id=?, status=?, opmerkingen=?, bijgewerkt_op=datetime('now')
+            `UPDATE ritten SET datum=?, ophaal_adres=?, aflever_adres=?, klant_id=?, voertuig_id=?, chauffeur_id=?, status=?, opmerkingen=?,
+               naam=?, start_tijd=?, start_plaats=?, bijgewerkt_op=datetime('now')
              WHERE id=?`
           ).run(
             v.datum,
@@ -1756,8 +1845,12 @@ const server = http.createServer(async (req, res) => {
             v.chauffeur_id || null,
             v.status || 'gepland',
             v.opmerkingen || null,
+            (v.naam || '').trim() || null,
+            v.start_tijd || null,
+            (v.start_plaats || '').trim() || null,
             ritId
           );
+          if (stops.length) slaRitStopsOp(ritId, stops);
           slaRitPrijsOp(ritId, v);
           return redirect(res, '/planner');
         }
@@ -1773,131 +1866,6 @@ const server = http.createServer(async (req, res) => {
       if (ritGefactureerdMatch && methode === 'POST') {
         db.prepare('UPDATE ritten SET gefactureerd = 1 - gefactureerd WHERE id = ?').run(ritGefactureerdMatch[1]);
         return redirect(res, '/planner/financieel');
-      }
-
-      // ---- Sjablonen voor vaste/terugkerende ritten ----
-      const laadSjabloonFormulierData = () => ({
-        klanten: db.prepare('SELECT * FROM klanten ORDER BY naam').all(),
-        voertuigen: db.prepare('SELECT * FROM voertuigen WHERE actief = 1 ORDER BY kenteken').all(),
-        chauffeurs: db.prepare("SELECT * FROM gebruikers WHERE rol = 'chauffeur' AND actief = 1 AND verwijderd = 0 ORDER BY naam").all(),
-      });
-
-      if (pathname === '/planner/sjablonen' && methode === 'GET') {
-        const sjablonen = db
-          .prepare(
-            `SELECT s.*, k.naam AS klant_naam, v.kenteken, c.naam AS chauffeur_naam
-             FROM rit_templates s
-             LEFT JOIN klanten k ON k.id = s.klant_id
-             LEFT JOIN voertuigen v ON v.id = s.voertuig_id
-             LEFT JOIN gebruikers c ON c.id = s.chauffeur_id
-             ORDER BY s.naam`
-          )
-          .all();
-        return stuurHtml(res, 200, layout({ titel: 'Sjablonen', actief: 'sjablonen', gebruiker, inhoud: pagSjablonenOverzicht({ sjablonen }) }));
-      }
-
-      if (pathname === '/planner/sjablonen/nieuw' && methode === 'GET') {
-        let sjabloon = null;
-        const vanRitId = url.searchParams.get('van_rit');
-        if (vanRitId) {
-          const rit = db.prepare('SELECT * FROM ritten WHERE id = ?').get(vanRitId);
-          if (rit) {
-            sjabloon = {
-              naam: '',
-              ophaal_adres: rit.ophaal_adres,
-              aflever_adres: rit.aflever_adres,
-              klant_id: rit.klant_id,
-              voertuig_id: rit.voertuig_id,
-              chauffeur_id: rit.chauffeur_id,
-              opmerkingen: rit.opmerkingen,
-            };
-          }
-        }
-        return stuurHtml(
-          res,
-          200,
-          layout({ titel: 'Nieuw sjabloon', actief: 'sjablonen', gebruiker, inhoud: pagSjabloonFormulier({ sjabloon, ...laadSjabloonFormulierData() }) })
-        );
-      }
-
-      if (pathname === '/planner/sjablonen/nieuw' && methode === 'POST') {
-        const v = await leesFormulier(req);
-        if (!v.naam || !v.ophaal_adres || !v.aflever_adres) {
-          return stuurHtml(
-            res,
-            400,
-            layout({
-              titel: 'Nieuw sjabloon',
-              actief: 'sjablonen',
-              gebruiker,
-              inhoud: pagSjabloonFormulier({ sjabloon: v, ...laadSjabloonFormulierData(), fout: 'Vul minimaal naam, ophaaladres en afleveradres in.' }),
-            })
-          );
-        }
-        db.prepare(
-          `INSERT INTO rit_templates (id, naam, klant_id, ophaal_adres, aflever_adres, voertuig_id, chauffeur_id, opmerkingen)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-        ).run(nieuweId(), v.naam.trim(), v.klant_id || null, v.ophaal_adres, v.aflever_adres, v.voertuig_id || null, v.chauffeur_id || null, v.opmerkingen || null);
-        return redirect(res, '/planner/sjablonen');
-      }
-
-      const sjabloonBewerkMatch = pathname.match(/^\/planner\/sjablonen\/([^/]+)\/bewerken$/);
-      if (sjabloonBewerkMatch) {
-        const sjabloonId = sjabloonBewerkMatch[1];
-        const bestaand = db.prepare('SELECT * FROM rit_templates WHERE id = ?').get(sjabloonId);
-        if (!bestaand) return stuurHtml(res, 404, 'Sjabloon niet gevonden.');
-
-        if (methode === 'GET') {
-          return stuurHtml(
-            res,
-            200,
-            layout({ titel: 'Sjabloon bewerken', actief: 'sjablonen', gebruiker, inhoud: pagSjabloonFormulier({ sjabloon: bestaand, ...laadSjabloonFormulierData() }) })
-          );
-        }
-
-        if (methode === 'POST') {
-          const v = await leesFormulier(req);
-          if (!v.naam || !v.ophaal_adres || !v.aflever_adres) {
-            return stuurHtml(
-              res,
-              400,
-              layout({
-                titel: 'Sjabloon bewerken',
-                actief: 'sjablonen',
-                gebruiker,
-                inhoud: pagSjabloonFormulier({
-                  sjabloon: { ...bestaand, ...v },
-                  ...laadSjabloonFormulierData(),
-                  fout: 'Vul minimaal naam, ophaaladres en afleveradres in.',
-                }),
-              })
-            );
-          }
-          db.prepare(
-            `UPDATE rit_templates SET naam=?, klant_id=?, ophaal_adres=?, aflever_adres=?, voertuig_id=?, chauffeur_id=?, opmerkingen=? WHERE id=?`
-          ).run(v.naam.trim(), v.klant_id || null, v.ophaal_adres, v.aflever_adres, v.voertuig_id || null, v.chauffeur_id || null, v.opmerkingen || null, sjabloonId);
-          return redirect(res, '/planner/sjablonen');
-        }
-      }
-
-      const sjabloonVerwijderMatch = pathname.match(/^\/planner\/sjablonen\/([^/]+)\/verwijderen$/);
-      if (sjabloonVerwijderMatch && methode === 'POST') {
-        db.prepare('DELETE FROM rit_templates WHERE id = ?').run(sjabloonVerwijderMatch[1]);
-        return redirect(res, '/planner/sjablonen');
-      }
-
-      const sjabloonToepassenMatch = pathname.match(/^\/planner\/sjablonen\/([^/]+)\/toepassen$/);
-      if (sjabloonToepassenMatch && methode === 'POST') {
-        const sjabloon = db.prepare('SELECT * FROM rit_templates WHERE id = ?').get(sjabloonToepassenMatch[1]);
-        if (!sjabloon) return stuurHtml(res, 404, 'Sjabloon niet gevonden.');
-        const v = await leesFormulier(req);
-        const datum = v.datum || vandaagIso();
-        const ritId = nieuweId();
-        db.prepare(
-          `INSERT INTO ritten (id, datum, ophaal_adres, aflever_adres, klant_id, voertuig_id, chauffeur_id, status, opmerkingen)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 'gepland', ?)`
-        ).run(ritId, datum, sjabloon.ophaal_adres, sjabloon.aflever_adres, sjabloon.klant_id, sjabloon.voertuig_id, sjabloon.chauffeur_id, sjabloon.opmerkingen);
-        return redirect(res, `/planner/ritten/${ritId}/bewerken`);
       }
 
       // ---- Back-ups ----
@@ -2993,7 +2961,11 @@ const server = http.createServer(async (req, res) => {
 
       // ---- Ritopdrachten ----
       if (methode === 'GET' && pathname === '/chauffeur/ritopdrachten') {
-        const ritten = haalRittenVoorChauffeur(gebruiker.id);
+        const ritten = haalRittenVoorChauffeur(gebruiker.id).map((r) => {
+          if (r.status === 'onderweg') maakStopsEchtIndienNodig(r);
+          return { ...r, stops: haalRitStops(r) };
+        });
+        const tab = url.searchParams.get('tab') === 'gepland' ? 'gepland' : 'actief';
         return stuurHtml(
           res,
           200,
@@ -3001,7 +2973,7 @@ const server = http.createServer(async (req, res) => {
             titel: 'Ritopdrachten',
             actief: 'ritopdrachten',
             gebruiker,
-            inhoud: pagChauffeurRitopdrachten({ ritten }),
+            inhoud: pagChauffeurRitopdrachten({ ritten, tab, vandaag: vandaagIso() }),
           })
         );
       }
@@ -3014,6 +2986,13 @@ const server = http.createServer(async (req, res) => {
         const rit = db.prepare('SELECT * FROM ritten WHERE id = ? AND chauffeur_id = ?').get(ritId, gebruiker.id);
         if (rit && toegestaneStatussen.includes(v.status)) {
           db.prepare("UPDATE ritten SET status = ?, bijgewerkt_op = datetime('now') WHERE id = ?").run(v.status, ritId);
+          if (v.status === 'onderweg') {
+            maakStopsEchtIndienNodig(rit);
+            db.prepare('UPDATE ritten SET gestart_op = COALESCE(gestart_op, ?) WHERE id = ?').run(new Date().toISOString(), ritId);
+          }
+          if (v.status === 'afgerond') {
+            db.prepare("UPDATE rit_stops SET status = 'afgerond', afgerond_op = COALESCE(afgerond_op, ?) WHERE rit_id = ?").run(new Date().toISOString(), ritId);
+          }
           const klant = rit.klant_id ? db.prepare('SELECT * FROM klanten WHERE id = ?').get(rit.klant_id) : null;
           if (klant && klant.email) {
             const onderweg = v.status === 'onderweg';
@@ -3024,7 +3003,22 @@ const server = http.createServer(async (req, res) => {
             stuurKlantEmail({ naar: klant.email, onderwerp, tekst }).catch(() => {});
           }
         }
-        return redirect(res, '/chauffeur/ritopdrachten');
+        return redirect(res, '/chauffeur/ritopdrachten' + (v.status === 'afgerond' ? '' : `#rit-${ritId}`));
+      }
+
+      // Eén stop afronden (of weer openzetten) tijdens de rit.
+      const stopAfrondMatch = pathname.match(/^\/chauffeur\/ritten\/([^/]+)\/stops\/([^/]+)\/(afronden|heropenen)$/);
+      if (stopAfrondMatch && methode === 'POST') {
+        const [, ritId, stopId, actie] = stopAfrondMatch;
+        const rit = db.prepare('SELECT * FROM ritten WHERE id = ? AND chauffeur_id = ?').get(ritId, gebruiker.id);
+        if (rit) {
+          if (actie === 'afronden') {
+            db.prepare("UPDATE rit_stops SET status = 'afgerond', afgerond_op = ? WHERE id = ? AND rit_id = ?").run(new Date().toISOString(), stopId, ritId);
+          } else {
+            db.prepare("UPDATE rit_stops SET status = 'open', afgerond_op = NULL WHERE id = ? AND rit_id = ?").run(stopId, ritId);
+          }
+        }
+        return redirect(res, `/chauffeur/ritopdrachten#rit-${ritId}`);
       }
 
       // ---- Meldingen (incident/schade melden) ----

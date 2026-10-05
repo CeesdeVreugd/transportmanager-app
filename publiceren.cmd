@@ -12,7 +12,7 @@ setlocal
 
 set "DOEL=C:\1 Automatiserings projecten\DeVreugdTransport\TransportManager-App\TransportManager"
 set "REPO=https://github.com/CeesdeVreugd/transportmanager-app.git"
-set "OMSCHRIJVING=Transport Manager V6: nieuw chauffeursdashboard (uren, km, ritten, openstaand), tabellen en formulieren goed uitgelijnd op de telefoon"
+set "OMSCHRIJVING=Transport Manager V7: ritopdrachten met stops (laden/lossen, navigatie, stop afronden), duidelijker dagoverzicht, sjablonen verwijderd"
 
 echo.
 echo ============================================

@@ -16,6 +16,13 @@ export function formatEuro(bedrag) {
   return '€ ' + n.toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+// "Industrieweg 24A, 2921 LB Krimpen aan den IJssel" → "Krimpen aan den IJssel" (korte weergave in lijsten).
+function plaatsUitAdres(adres) {
+  const delen = String(adres || '').split(',').map((d) => d.trim()).filter(Boolean);
+  if (delen.length < 2) return adres || '';
+  return delen[delen.length - 1].replace(/^\d{4}\s?[A-Z]{2}\s+/i, '') || adres;
+}
+
 export function pagRittenOverzicht({ ritten, datumFilter }) {
   const rijen = ritten.length
     ? ritten
@@ -23,7 +30,7 @@ export function pagRittenOverzicht({ ritten, datumFilter }) {
           (r) => `<tr>
       <td>${formatDatum(r.datum)}</td>
       <td>${escapeHtml(r.klant_naam || '—')}</td>
-      <td>${escapeHtml(r.ophaal_adres)} → ${escapeHtml(r.aflever_adres)}</td>
+      <td>${r.naam ? `<b>${escapeHtml(r.naam)}</b><br>` : ''}${escapeHtml(plaatsUitAdres(r.ophaal_adres))} → ${escapeHtml(plaatsUitAdres(r.aflever_adres))}${r.aantal_stops > 2 ? ` <span class="badge b-blue">${r.aantal_stops} stops</span>` : ''}</td>
       <td>${escapeHtml(r.chauffeur_naam || 'Niet toegewezen')}</td>
       <td>${escapeHtml(r.kenteken || '—')}</td>
       <td>${r.afstand_km != null ? `${r.afstand_km} km` : '—'}</td>
@@ -31,7 +38,6 @@ export function pagRittenOverzicht({ ritten, datumFilter }) {
       <td><span class="badge badge-${r.status}">${statusLabel(r.status)}</span></td>
       <td class="knoppenrij">
         <a href="/planner/ritten/${r.id}/bewerken" class="knop knop-klein">Bewerken</a>
-        <a href="/planner/sjablonen/nieuw?van_rit=${r.id}" class="knop knop-klein">Als sjabloon</a>
         <form method="post" action="/planner/ritten/${r.id}/verwijderen" class="inline-form" onsubmit="return confirm('Deze rit verwijderen?')">
           <button type="submit" class="knop knop-klein knop-gevaar">Verwijderen</button>
         </form>
@@ -63,8 +69,46 @@ export function pagRittenOverzicht({ ritten, datumFilter }) {
 </div>`;
 }
 
-export function pagRitFormulier({ rit, klanten, voertuigen, chauffeurs, toltarieven = [], geselecteerdeTolIds = [], margePercentage = 20, routeBerekeningActief = false, fout }) {
-  const isNieuw = !rit;
+// Eén stopregel in het ritformulier (wordt ook als <template> gebruikt voor "+ Stop toevoegen").
+function ritStopRijHtml(st = {}) {
+  const type = st.type || 'laden';
+  return `<div class="ritstop-rij" data-ritstop>
+    <input type="hidden" name="stop_id" value="${escapeHtml(st.id || '')}">
+    <div class="ritstop-kop">
+      <span class="ritstop-nr" data-ritstop-nr></span>
+      <select name="stop_type" class="ritstop-type">
+        <option value="laden"${type === 'laden' ? ' selected' : ''}>Laden</option>
+        <option value="lossen"${type === 'lossen' ? ' selected' : ''}>Lossen</option>
+        <option value="overig"${type === 'overig' ? ' selected' : ''}>Overig</option>
+      </select>
+      <div class="ritstop-knoppen">
+        <button type="button" class="iconbtn" data-ritstop-op aria-label="Omhoog" title="Omhoog">▲</button>
+        <button type="button" class="iconbtn" data-ritstop-neer aria-label="Omlaag" title="Omlaag">▼</button>
+        <button type="button" class="iconbtn" data-ritstop-weg aria-label="Stop verwijderen" title="Verwijderen">✕</button>
+      </div>
+    </div>
+    <div class="ritstop-velden">
+      <label>Bedrijf / naam<input type="text" name="stop_naam" value="${escapeHtml(st.naam || '')}" placeholder="Bijv. Zuidwest Logistiek"></label>
+      <label>Adres<input type="text" name="stop_adres" value="${escapeHtml(st.adres || '')}" placeholder="Straat, postcode en plaats"></label>
+      <label>Datum<input type="date" name="stop_datum" value="${escapeHtml(st.datum || '')}"></label>
+      <label>Tijdvenster van<input type="time" name="stop_van" value="${escapeHtml(st.tijd_van || '')}"></label>
+      <label>Tijdvenster tot<input type="time" name="stop_tot" value="${escapeHtml(st.tijd_tot || '')}"></label>
+      <label class="ritstop-breed">Opmerking voor de chauffeur<input type="text" name="stop_opmerking" value="${escapeHtml(st.opmerking || '')}" placeholder="Bijv. laadnummer, dock, contactpersoon"></label>
+    </div>
+  </div>`;
+}
+
+export function pagRitFormulier({ rit, stops = null, klanten, voertuigen, chauffeurs, toltarieven = [], geselecteerdeTolIds = [], margePercentage = 20, routeBerekeningActief = false, fout }) {
+  const stopLijst =
+    stops && stops.length
+      ? stops
+      : rit && (rit.ophaal_adres || rit.aflever_adres)
+        ? [
+            { type: 'laden', adres: rit.ophaal_adres || '' },
+            { type: 'lossen', adres: rit.aflever_adres || '' },
+          ]
+        : [{ type: 'laden' }, { type: 'lossen' }];
+  const isNieuw = !rit || !rit.id;
   const actionUrl = isNieuw ? '/planner/ritten/nieuw' : `/planner/ritten/${rit.id}/bewerken`;
 
   const voertuigOpties = voertuigen
@@ -90,7 +134,7 @@ export function pagRitFormulier({ rit, klanten, voertuigen, chauffeurs, toltarie
 <h1>${isNieuw ? 'Nieuwe rit' : 'Rit bewerken'}</h1>
 ${fout ? `<div class="melding melding-fout">${escapeHtml(fout)}</div>` : ''}
 <div class="kaart">
-  <form method="post" action="${actionUrl}" class="form" style="max-width:640px;" data-rit-formulier data-marge-percentage="${margePercentage}">
+  <form method="post" action="${actionUrl}" class="form" style="max-width:760px;" data-rit-formulier data-marge-percentage="${margePercentage}">
     <div class="form-rij">
       <label>Datum
         <input type="date" name="datum" required value="${escapeHtml(rit?.datum || '')}">
@@ -103,12 +147,24 @@ ${fout ? `<div class="melding melding-fout">${escapeHtml(fout)}</div>` : ''}
         </select>
       </label>
     </div>
-    <label>Ophaaladres
-      <input type="text" name="ophaal_adres" required value="${escapeHtml(rit?.ophaal_adres || '')}">
+    <div class="form-rij">
+      <label>Naam van de rit
+        <input type="text" name="naam" value="${escapeHtml(rit?.naam || '')}" placeholder="Bijv. Trailer Tilburg">
+      </label>
+      <label>Starttijd
+        <input type="time" name="start_tijd" value="${escapeHtml(rit?.start_tijd || '')}">
+      </label>
+    </div>
+    <label>Startplaats
+      <input type="text" name="start_plaats" value="${escapeHtml(rit?.start_plaats || '')}" placeholder="Waar begint de rit? Bijv. Dodewaard">
     </label>
-    <label>Afleveradres
-      <input type="text" name="aflever_adres" required value="${escapeHtml(rit?.aflever_adres || '')}">
-    </label>
+
+    <div class="ritstops">
+      <div class="ritstops-kop"><h2>Stops</h2><span class="hint">In volgorde van rijden. De chauffeur ziet ze als genummerde lijst met navigatieknop.</span></div>
+      <div class="ritstops-lijst" data-ritstops>${stopLijst.map((st) => ritStopRijHtml(st)).join('')}</div>
+      <template data-ritstop-sjabloon>${ritStopRijHtml({ type: 'lossen' })}</template>
+      <button type="button" class="knop" data-ritstop-toevoegen>+ Stop toevoegen</button>
+    </div>
     <div class="form-rij">
       <label>Klant
         <select name="klant_id">
@@ -164,107 +220,10 @@ ${fout ? `<div class="melding melding-fout">${escapeHtml(fout)}</div>` : ''}
 </div>`;
 }
 
-// ==================== Vaste/terugkerende ritten-sjablonen ====================
 
 function vandaagIsoDatum() {
   return new Date().toISOString().slice(0, 10);
 }
-
-export function pagSjablonenOverzicht({ sjablonen, fout, succes }) {
-  const rijen = sjablonen.length
-    ? sjablonen
-        .map(
-          (s) => `<tr>
-      <td>${escapeHtml(s.naam)}</td>
-      <td>${escapeHtml(s.klant_naam || '—')}</td>
-      <td>${escapeHtml(s.ophaal_adres || '—')} → ${escapeHtml(s.aflever_adres || '—')}</td>
-      <td>${escapeHtml(s.chauffeur_naam || '—')}</td>
-      <td>${escapeHtml(s.kenteken || '—')}</td>
-      <td>
-        <form method="post" action="/planner/sjablonen/${s.id}/toepassen" class="form-rij" style="max-width:none;align-items:flex-end;flex-wrap:nowrap;">
-          <label style="margin:0;">Datum
-            <input type="date" name="datum" value="${vandaagIsoDatum()}" required>
-          </label>
-          <button type="submit" class="knop knop-primair knop-klein">Rit aanmaken</button>
-        </form>
-      </td>
-      <td class="knoppenrij">
-        <a href="/planner/sjablonen/${s.id}/bewerken" class="knop knop-klein">Bewerken</a>
-        <form method="post" action="/planner/sjablonen/${s.id}/verwijderen" class="inline-form" onsubmit="return confirm('Dit sjabloon verwijderen?')">
-          <button type="submit" class="knop knop-klein knop-gevaar">Verwijderen</button>
-        </form>
-      </td>
-    </tr>`
-        )
-        .join('')
-    : `<tr><td colspan="7" class="leeg">Nog geen sjablonen voor vaste/terugkerende ritten.</td></tr>`;
-
-  return `
-<div class="paginakop">
-  <h1>Sjablonen — vaste ritten</h1>
-  <a href="/planner/sjablonen/nieuw" class="knop knop-primair">+ Nieuw sjabloon</a>
-</div>
-<p class="rit-meta">Voor ritten die steeds terugkeren (bijv. iedere week dezelfde route voor dezelfde opdrachtgever): leg ze één keer vast als sjabloon en maak er daarna met één klik een nieuwe rit van voor de gewenste datum.</p>
-${fout ? `<div class="melding melding-fout">${escapeHtml(fout)}</div>` : ''}
-${succes ? `<div class="melding melding-succes">Opgeslagen.</div>` : ''}
-<div class="kaart tabel-wrap">
-  <table>
-    <thead><tr><th>Naam</th><th>Klant</th><th>Route</th><th>Chauffeur</th><th>Voertuig</th><th>Rit aanmaken voor</th><th></th></tr></thead>
-    <tbody>${rijen}</tbody>
-  </table>
-</div>`;
-}
-
-export function pagSjabloonFormulier({ sjabloon, klanten, voertuigen, chauffeurs, fout }) {
-  const isNieuw = !sjabloon?.id;
-  const actionUrl = isNieuw ? '/planner/sjablonen/nieuw' : `/planner/sjablonen/${sjabloon.id}/bewerken`;
-
-  return `
-<h1>${isNieuw ? 'Nieuw sjabloon' : 'Sjabloon bewerken'}</h1>
-${fout ? `<div class="melding melding-fout">${escapeHtml(fout)}</div>` : ''}
-<div class="kaart">
-  <form method="post" action="${actionUrl}" class="form" style="max-width:640px;">
-    <label>Naam van dit sjabloon
-      <input type="text" name="naam" required placeholder="Bijv. Wekelijkse rit Rotterdam - Antwerpen" value="${escapeHtml(sjabloon?.naam || '')}">
-    </label>
-    <label>Ophaaladres
-      <input type="text" name="ophaal_adres" required value="${escapeHtml(sjabloon?.ophaal_adres || '')}">
-    </label>
-    <label>Afleveradres
-      <input type="text" name="aflever_adres" required value="${escapeHtml(sjabloon?.aflever_adres || '')}">
-    </label>
-    <div class="form-rij">
-      <label>Klant
-        <select name="klant_id">
-          <option value="">— Geen —</option>
-          ${klanten.map((k) => optie(k.id, k.naam, sjabloon?.klant_id)).join('')}
-        </select>
-      </label>
-      <label>Chauffeur
-        <select name="chauffeur_id">
-          <option value="">— Niet toegewezen —</option>
-          ${chauffeurs.map((c) => optie(c.id, c.naam, sjabloon?.chauffeur_id)).join('')}
-        </select>
-      </label>
-      <label>Voertuig
-        <select name="voertuig_id">
-          <option value="">— Niet toegewezen —</option>
-          ${voertuigen.map((v) => optie(v.id, v.kenteken, sjabloon?.voertuig_id)).join('')}
-        </select>
-      </label>
-    </div>
-    <label>Opmerkingen
-      <textarea name="opmerkingen">${escapeHtml(sjabloon?.opmerkingen || '')}</textarea>
-    </label>
-    <div class="knoppenrij">
-      <button type="submit" class="knop knop-primair">${isNieuw ? 'Sjabloon opslaan' : 'Wijzigingen opslaan'}</button>
-      <a href="/planner/sjablonen" class="knop">Annuleren</a>
-    </div>
-  </form>
-</div>`;
-}
-
-// ==================== Back-ups ====================
 
 function formatGrootte(bytes) {
   if (!bytes) return '—';
@@ -1039,35 +998,138 @@ ${weekKaart}
 </div>`;
 }
 
-// ---- Chauffeur: Ritopdrachten (losse ritten van de planner) ----
-export function pagChauffeurRitopdrachten({ ritten = [] }) {
-  const ritKaarten = ritten.length
-    ? ritten
-        .map((r) => {
-          const volgendeStatus = { gepland: 'onderweg', onderweg: 'afgerond' }[r.status];
-          const volgendeLabel = { onderweg: 'Markeer als onderweg', afgerond: 'Markeer als afgerond' }[volgendeStatus];
-          return `
-      <div class="rit-kaart">
-        <div class="rit-meta">${formatDatum(r.datum)} · <span class="badge badge-${r.status}">${statusLabel(r.status)}</span></div>
-        <div class="rit-adressen">${escapeHtml(r.ophaal_adres)} → ${escapeHtml(r.aflever_adres)}</div>
-        <div class="rit-meta">${r.klant_naam ? `Klant: ${escapeHtml(r.klant_naam)} · ` : ''}${r.kenteken ? `Voertuig: ${escapeHtml(r.kenteken)}` : 'Geen voertuig toegewezen'}</div>
-        ${r.opmerkingen ? `<div class="rit-meta">Opmerking: ${escapeHtml(r.opmerkingen)}</div>` : ''}
-        ${
-          volgendeStatus
-            ? `<form method="post" action="/chauffeur/ritten/${r.id}/status" data-status-form class="inline-form" style="margin-top:0.6rem;">
-                 <input type="hidden" name="status" value="${volgendeStatus}">
-                 <button type="submit" class="knop knop-primair knop-klein">${volgendeLabel}</button>
-               </form>`
-            : ''
-        }
-      </div>`;
-        })
-        .join('')
-    : `<div class="leeg">Geen losse ritten gepland.</div>`;
+// ---- Chauffeur: Ritopdrachten (zoals een chauffeursapp: Actief / Gepland, stops met navigatie) ----
+const STOP_TYPE = {
+  start: { label: 'Start', ico: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7v9H3z"/></svg>' },
+  laden: { label: 'Laden', ico: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v15M6 13l6 6 6-6"/></svg>' },
+  lossen: { label: 'Lossen', ico: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V5M6 11l6-6 6 6"/></svg>' },
+  overig: { label: 'Stop', ico: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="10" r="3"/><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/></svg>' },
+};
+const NAV_ICO = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 3L3 10.5l7.5 2.9L13.4 21z"/></svg>';
+const VINK_ICO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
 
+function navigatieUrl(adres) {
+  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(adres)}&travelmode=driving`;
+}
+function kortDatum(iso) {
+  if (!iso) return '';
+  const [, m, d] = iso.split('-').map(Number);
+  return `${d}/${m}`;
+}
+function tijdIso(iso) {
+  if (!iso) return '';
+  return new Intl.DateTimeFormat('nl-NL', { timeZone: 'Europe/Amsterdam', hour: '2-digit', minute: '2-digit' }).format(new Date(iso));
+}
+
+function ritKaartHtml(r, { tab }) {
+  const stops = r.stops || [];
+  const echteStops = stops.filter((st) => !st.virtueel);
+  const afgerond = stops.filter((st) => st.status === 'afgerond').length;
+  const onderweg = r.status === 'onderweg';
+  const volgendeIndex = onderweg ? stops.findIndex((st) => st.status !== 'afgerond') : -1;
+  const titel = `${kortDatum(r.datum)}${r.start_tijd ? ' ' + escapeHtml(r.start_tijd) : ''} – ${escapeHtml((r.naam || r.klant_naam || `${r.ophaal_adres} → ${r.aflever_adres}`).toUpperCase())}`;
+
+  let nr = 0;
+  const items = [];
+  if (r.start_plaats) {
+    nr += 1;
+    items.push(`<li class="stop stop-start">
+      <div class="stop-ico">${STOP_TYPE.start.ico}</div>
+      <div class="stop-inhoud">
+        <div class="stop-label">${STOP_TYPE.start.label}</div>
+        <div class="stop-titel">${nr}. ${escapeHtml(r.start_plaats)}</div>
+        ${r.start_tijd ? `<div class="stop-meta">Vertrek ${escapeHtml(r.start_tijd)}</div>` : ''}
+      </div>
+      <a class="stop-nav" href="${navigatieUrl(r.start_plaats)}" target="_blank" rel="noopener" aria-label="Navigeer naar ${escapeHtml(r.start_plaats)}">${NAV_ICO}</a>
+    </li>`);
+  }
+  stops.forEach((st, i) => {
+    nr += 1;
+    const t = STOP_TYPE[st.type] || STOP_TYPE.overig;
+    const klaar = st.status === 'afgerond';
+    const volgende = i === volgendeIndex;
+    const venster = st.tijd_van || st.tijd_tot ? `${kortDatum(st.datum || r.datum)}: ${st.tijd_van && st.tijd_tot ? `${escapeHtml(st.tijd_van)} – ${escapeHtml(st.tijd_tot)}` : st.tijd_van ? `vanaf ${escapeHtml(st.tijd_van)}` : `uiterlijk ${escapeHtml(st.tijd_tot)}`}` : st.datum && st.datum !== r.datum ? kortDatum(st.datum) : '';
+    const actie =
+      onderweg && st.id
+        ? klaar
+          ? `<form method="post" action="/chauffeur/ritten/${r.id}/stops/${st.id}/heropenen" class="stop-actie"><button class="stop-klaar" type="submit" title="Toch nog niet klaar? Tik om ongedaan te maken">${VINK_ICO}Afgerond${st.afgerond_op ? ' ' + tijdIso(st.afgerond_op) : ''}</button></form>`
+          : `<form method="post" action="/chauffeur/ritten/${r.id}/stops/${st.id}/afronden" class="stop-actie"><button class="btn ${volgende ? 'primary' : ''} sm" type="submit">${VINK_ICO}${t.label === 'Stop' ? 'Stop' : t.label} afgerond</button></form>`
+        : '';
+    items.push(`<li class="stop stop-${escapeHtml(st.type || 'overig')}${klaar ? ' klaar' : ''}${volgende ? ' volgende' : ''}">
+      <div class="stop-ico">${klaar ? VINK_ICO : t.ico}</div>
+      <div class="stop-inhoud">
+        <div class="stop-label">${t.label}${volgende ? '<span class="stop-volgende">Volgende stop</span>' : ''}</div>
+        <div class="stop-titel">${nr}. ${escapeHtml(st.naam || st.adres)}</div>
+        ${st.naam ? `<div class="stop-adres">${escapeHtml(st.adres)}</div>` : ''}
+        ${venster ? `<div class="stop-meta">${venster}</div>` : ''}
+        ${st.opmerking ? `<div class="stop-opmerking">${escapeHtml(st.opmerking)}</div>` : ''}
+        ${actie}
+      </div>
+      <a class="stop-nav" href="${navigatieUrl(st.adres)}" target="_blank" rel="noopener" aria-label="Navigeer naar ${escapeHtml(st.naam || st.adres)}">${NAV_ICO}</a>
+    </li>`);
+  });
+
+  const alleKlaar = stops.length > 0 && afgerond === stops.length;
+  let hoofdActie = '';
+  if (r.status === 'gepland' && tab === 'actief') {
+    hoofdActie = `<form method="post" action="/chauffeur/ritten/${r.id}/status" class="ritkaart-actie">
+        <input type="hidden" name="status" value="onderweg">
+        <button type="submit" class="btn btn-start block">Start met de rit</button>
+      </form>`;
+  } else if (onderweg) {
+    const pct = stops.length ? Math.round((afgerond / stops.length) * 100) : 0;
+    hoofdActie = `<div class="ritkaart-voortgang">
+        <div class="rv-tekst"><b>${afgerond} van ${stops.length}</b> stops afgerond${r.gestart_op ? ` · gestart om ${tijdIso(r.gestart_op)}` : ''}</div>
+        <div class="kpi-balk"><div style="width:${pct}%"></div></div>
+      </div>
+      ${
+        alleKlaar
+          ? `<form method="post" action="/chauffeur/ritten/${r.id}/status" class="ritkaart-actie"><input type="hidden" name="status" value="afgerond"><button type="submit" class="btn btn-start block">Rit afronden</button></form>`
+          : ''
+      }`;
+  }
+  const onderaan =
+    onderweg && !alleKlaar
+      ? `<form method="post" action="/chauffeur/ritten/${r.id}/status" class="ritkaart-voet" data-confirm="Rit afronden terwijl nog niet alle stops zijn afgerond?"><input type="hidden" name="status" value="afgerond"><button type="submit" class="btn ghost sm">Rit afronden</button></form>`
+      : '';
+
+  return `<section class="card ritkaart${onderweg ? ' is-onderweg' : ''}" id="rit-${r.id}">
+  <div class="ritkaart-kop">
+    <div class="ritkaart-titel">${titel}</div>
+    <span class="badge badge-${r.status}">${statusLabel(r.status)}</span>
+  </div>
+  <dl class="ritkaart-info">
+    <dt>Rit ID</dt><dd>${escapeHtml(r.ritnummer || '—')}</dd>
+    ${r.naam ? `<dt>Naam</dt><dd>${escapeHtml(r.naam)}</dd>` : ''}
+    ${r.klant_naam ? `<dt>Opdrachtgever</dt><dd>${escapeHtml(r.klant_naam)}</dd>` : ''}
+    <dt>Voertuig</dt><dd>${r.kenteken ? escapeHtml(r.kenteken) + (r.voertuig_omschrijving ? ' – ' + escapeHtml(r.voertuig_omschrijving) : '') : 'Nog niet toegewezen'}</dd>
+    <dt>Stops</dt><dd>${stops.length}${onderweg ? ` <span class="muted">(${afgerond} afgerond)</span>` : ''}</dd>
+  </dl>
+  ${r.opmerkingen ? `<div class="ritkaart-opmerking">${escapeHtml(r.opmerkingen)}</div>` : ''}
+  ${hoofdActie}
+  <ol class="stoplijst">${items.join('')}</ol>
+  ${onderaan}
+</section>`;
+}
+
+export function pagChauffeurRitopdrachten({ ritten = [], tab = 'actief', vandaag }) {
+  const actief = ritten.filter((r) => r.status === 'onderweg' || (r.status === 'gepland' && (!vandaag || r.datum <= vandaag)));
+  const gepland = ritten.filter((r) => r.status === 'gepland' && vandaag && r.datum > vandaag);
+  // Lopende ritten bovenaan, daarna op datum/starttijd.
+  actief.sort((a, b) => (a.status === 'onderweg' ? -1 : 0) - (b.status === 'onderweg' ? -1 : 0) || (a.datum + (a.start_tijd || '')).localeCompare(b.datum + (b.start_tijd || '')));
+  gepland.sort((a, b) => (a.datum + (a.start_tijd || '')).localeCompare(b.datum + (b.start_tijd || '')));
+  const lijst = tab === 'gepland' ? gepland : actief;
+  const leeg =
+    tab === 'gepland'
+      ? '<div class="card"><div class="empty">Er zijn nog geen ritten voor de komende dagen gepland.</div></div>'
+      : '<div class="card"><div class="empty">Geen actieve ritten voor vandaag.' + (gepland.length ? ' Kijk bij <a href="/chauffeur/ritopdrachten?tab=gepland">Gepland</a> voor de komende dagen.' : '') + '</div></div>';
   return `
-<div class="pagehead"><div><h1>Ritopdrachten</h1><p>Jouw geplande en lopende ritten</p></div></div>
-${ritKaarten}`;
+<div class="pagehead"><div><h1>Ritopdrachten</h1><p>Tik op het pijltje om te navigeren naar een stop.</p></div></div>
+<nav class="seg rit-tabs" aria-label="Ritten">
+  <a href="/chauffeur/ritopdrachten" class="${tab === 'actief' ? 'active' : ''}">Actief<span class="tab-aantal">${actief.length}</span></a>
+  <a href="/chauffeur/ritopdrachten?tab=gepland" class="${tab === 'gepland' ? 'active' : ''}">Gepland<span class="tab-aantal">${gepland.length}</span></a>
+</nav>
+${lijst.length ? lijst.map((r) => ritKaartHtml(r, { tab })).join('') : leeg}`;
 }
 
 // ---- Chauffeur: Meldingen (incident/schade melden) ----
@@ -1185,24 +1247,64 @@ function stopBewerkenToggleHtml(d, actiePrefix) {
   </details>`;
 }
 
+const DAG_ICO = {
+  start: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7v9H3z"/></svg>',
+  eind: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></svg>',
+  laden: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v15M6 13l6 6 6-6"/></svg>',
+  lossen: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V5M6 11l6-6 6 6"/></svg>',
+  pauze: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h13v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5zM17 10h1.5a2.5 2.5 0 0 1 0 5H17M8 3v3M12 3v3"/></svg>',
+  tanken: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16M3 21h12M4 10h10M14 8l3 2v7a1.5 1.5 0 0 0 3 0V9l-3-3"/></svg>',
+  overig: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="10" r="3"/><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/></svg>',
+};
+function activiteitType(activiteit) {
+  const a = String(activiteit || '').toLowerCase();
+  if (a.includes('lossen')) return 'lossen';
+  if (a.includes('laden')) return 'laden';
+  if (a.includes('pauze') || a.includes('rust')) return 'pauze';
+  if (a.includes('tank')) return 'tanken';
+  return 'overig';
+}
+const kmFmt = (km) => (km != null && km !== '' ? `${Number(km).toLocaleString('nl-NL')} km` : '');
+
 function dagOverzichtHtml(opdracht, dagregels = [], { bewerkbaar = false, actiePrefix = '' } = {}) {
-  const startRegel = `${escapeHtml(opdracht.start_plaats || '—')} · ${escapeHtml(opdracht.start_tijd || '—')}${
-    opdracht.start_km != null ? ' · ' + opdracht.start_km + ' km' : ''
-  }`;
-  const items = [dagOverzichtRegelHtml('start', '🏁', 'Start', startRegel)];
+  const items = [];
+  const startMeta = [opdracht.start_tijd ? `Vertrek ${escapeHtml(opdracht.start_tijd)}` : '', kmFmt(opdracht.start_km)].filter(Boolean).join(' · ');
+  items.push(`<li class="stop stop-start">
+    <div class="stop-ico">${DAG_ICO.start}</div>
+    <div class="stop-inhoud"><div class="stop-label">Start</div>
+      <div class="stop-titel">${escapeHtml(opdracht.start_plaats || 'Beginplaats')}</div>
+      ${startMeta ? `<div class="stop-meta">${startMeta}</div>` : ''}</div>
+  </li>`);
   dagregels.forEach((d, i) => {
-    const regel = `${escapeHtml(d.activiteit || 'Doorgereden')} · aankomst ${escapeHtml(d.tijd_aankomst || '—')} · vertrek ${escapeHtml(d.tijd_vertrek || 'bezig')}${d.km_stand != null ? ' · ' + d.km_stand + ' km' : ''}`;
-    items.push(
-      dagOverzichtRegelHtml('stop', String(i + 1), escapeHtml(d.plaats || '—'), regel, bewerkbaar ? stopBewerkenToggleHtml(d, actiePrefix) : '')
-    );
+    const type = activiteitType(d.activiteit);
+    const open = !d.tijd_vertrek && opdracht.status !== 'afgerond';
+    const meta = [
+      d.tijd_aankomst ? `Aankomst ${escapeHtml(d.tijd_aankomst)}` : '',
+      d.tijd_vertrek ? `Vertrek ${escapeHtml(d.tijd_vertrek)}` : open ? '<b>nu hier</b>' : '',
+      kmFmt(d.km_stand),
+    ]
+      .filter(Boolean)
+      .join(' · ');
+    items.push(`<li class="stop stop-${type}${open ? ' volgende' : ''}">
+      <div class="stop-ico">${DAG_ICO[type]}</div>
+      <div class="stop-inhoud">
+        <div class="stop-label">${escapeHtml(d.activiteit || 'Stop')}${open ? '<span class="stop-volgende">Nu hier</span>' : ''}</div>
+        <div class="stop-titel">${i + 1}. ${escapeHtml(d.plaats || '—')}</div>
+        ${meta ? `<div class="stop-meta">${meta}</div>` : ''}
+        ${bewerkbaar ? stopBewerkenToggleHtml(d, actiePrefix) : ''}
+      </div>
+    </li>`);
   });
   if (opdracht.status === 'afgerond') {
-    const eindRegel = `${escapeHtml(opdracht.eind_plaats || '—')} · ${escapeHtml(opdracht.eind_tijd || '—')}${
-      opdracht.eind_km != null ? ' · ' + opdracht.eind_km + ' km' : ''
-    }`;
-    items.push(dagOverzichtRegelHtml('eind', '🏁', 'Eind', eindRegel));
+    const eindMeta = [opdracht.eind_tijd ? `Aankomst ${escapeHtml(opdracht.eind_tijd)}` : '', kmFmt(opdracht.eind_km)].filter(Boolean).join(' · ');
+    items.push(`<li class="stop stop-eind klaar">
+      <div class="stop-ico">${DAG_ICO.eind}</div>
+      <div class="stop-inhoud"><div class="stop-label">Einde opdracht</div>
+        <div class="stop-titel">${escapeHtml(opdracht.eind_plaats || 'Eindplaats')}</div>
+        ${eindMeta ? `<div class="stop-meta">${eindMeta}</div>` : ''}</div>
+    </li>`);
   }
-  return `<div class="dagoverzicht">${items.join('')}</div>`;
+  return `<ol class="stoplijst dagstops">${items.join('')}</ol>`;
 }
 
 // Bewerkbare stopregel: géén eigen <form> - dit is één rij binnen het grote
@@ -1367,14 +1469,16 @@ function volledigeDagFormHtml({ werkdag, opdrachten = [], klanten = [], tariefaf
 
 // Alleen-lezen weergave van een afgeronde opdracht (gebruikt in het live
 // "vandaag"-blok voor al afgesloten opdrachten eerder op de dag).
-function opdrachtSamenvattingHtml(opdracht, { bewerkbaar = false, actiePrefix = '' } = {}) {
+function opdrachtSamenvattingHtml(opdracht, { bewerkbaar = false, actiePrefix = '', open = false } = {}) {
   const totalen = opdracht.totalen || { kmTotaal: null, nettoMinuten: 0, pauzeMinuten: 0 };
-  const regel = `${opdracht.start_tijd || '—'}–${opdracht.eind_tijd || '—'} · ${totalen.kmTotaal != null ? totalen.kmTotaal + ' km' : '—'} · ${formatMinuten(totalen.nettoMinuten)} netto`;
   const dagregels = opdracht.dagregels || [];
-  return `<div class="rit-kaart">
-    <div class="rit-meta"><strong>${escapeHtml(opdracht.klant_naam || 'Geen opdrachtgever')}</strong> · ${regel}</div>
+  return `<details class="opdracht-samenvatting"${open ? ' open' : ''}>
+    <summary>
+      <div class="os-titel">${escapeHtml(opdracht.klant_naam || 'Geen opdrachtgever')}</div>
+      <div class="os-meta">${escapeHtml(opdracht.start_tijd || '—')}–${escapeHtml(opdracht.eind_tijd || '—')} · ${totalen.kmTotaal != null ? totalen.kmTotaal + ' km' : '— km'} · ${formatMinuten(totalen.nettoMinuten)} netto · ${dagregels.length} ${dagregels.length === 1 ? 'stop' : 'stops'}</div>
+    </summary>
     ${dagOverzichtHtml(opdracht, dagregels, { bewerkbaar, actiePrefix })}
-  </div>`;
+  </details>`;
 }
 
 // werkdag mag null zijn (nog geen dag gestart/aangemaakt).
@@ -1420,67 +1524,74 @@ function werkdagBlokHtml(werkdag, opdrachten, totalen, opties) {
   if (live) {
     const openOpdracht = opdrachten.find((o) => o.status === 'bezig') || null;
     const afgeslotenOpdrachten = opdrachten.filter((o) => o.status !== 'bezig');
-    const afgeslotenHtml = afgeslotenOpdrachten.length
-      ? `<h3>Eerder vandaag</h3>${afgeslotenOpdrachten.map((o) => opdrachtSamenvattingHtml(o, { bewerkbaar, actiePrefix })).join('')}`
-      : '';
 
-    let huidigeOpdrachtHtml = '';
+    const dagKop = `<div class="dagkop">
+      <div>
+        <div class="hero-label"><span class="hero-dot aan"></span>Vandaag</div>
+        <div class="dagkop-titel">Dag bezig sinds ${escapeHtml(werkdag.start_tijd || '—')}</div>
+        ${opdrachtgevers ? `<div class="dagkop-sub">${escapeHtml(opdrachtgevers)}</div>` : ''}
+      </div>
+      <div class="dagkop-cijfers">
+        <div><span>Gewerkt</span><b>${formatMinuten(totalen.nettoMinuten).replace('min', 'm')}</b></div>
+        <div><span>Gereden</span><b>${totalen.kmTotaal != null ? totalen.kmTotaal + ' km' : '—'}</b></div>
+        <div><span>Pauze</span><b>${formatMinuten(totalen.pauzeMinuten).replace('min', 'm')}</b></div>
+      </div>
+    </div>`;
+
+    let hoofdHtml = '';
     if (openOpdracht) {
       const dagregels = openOpdracht.dagregels || [];
       const openRegel = dagregels.find((d) => !d.tijd_vertrek) || null;
-      const stopsHtml = dagOverzichtHtml(openOpdracht, dagregels, { bewerkbaar, actiePrefix });
-
-      // Geen permanent invoerformulier meer: aankomst vraagt kort de
-      // gegevens van de nieuwe stop, vertrek is één druk op de knop (de
-      // tijd wordt automatisch vastgelegd op het moment van indienen).
-      const aankomstVertrekForm = bewerkbaar
+      const actie = bewerkbaar
         ? openRegel
-          ? `<form method="post" action="${actiePrefix}/stop/vertrek" class="knoppenrij" style="margin:0.75rem 0;">
-              <button type="submit" class="knop knop-primair">Vertrek</button>
-            </form>`
-          : `<form method="post" action="${actiePrefix}/stop/aankomst" class="form-rij" style="margin:0.75rem 0;align-items:flex-end;">
+          ? `<div class="actievak">
+              <div class="actievak-tekst">Je bent bij <b>${escapeHtml(openRegel.plaats || 'de stop')}</b>${openRegel.activiteit ? ` (${escapeHtml(openRegel.activiteit.toLowerCase())})` : ''} sinds ${escapeHtml(openRegel.tijd_aankomst || '—')}.</div>
+              <form method="post" action="${actiePrefix}/stop/vertrek"><button type="submit" class="btn btn-start block">Vertrek</button></form>
+            </div>`
+          : `<form method="post" action="${actiePrefix}/stop/aankomst" class="actievak form">
+              <h3>Aankomst bij volgende stop</h3>
+              <div class="activiteit-keuze" role="group" aria-label="Activiteit">
+                ${['Laden', 'Lossen', 'Pauze', 'Tanken', 'Wachten'].map((a) => `<button type="button" class="fchip" data-zet-activiteit="${a}">${a}</button>`).join('')}
+              </div>
+              <label>Activiteit
+                <input type="text" name="activiteit" list="activiteiten-lijst" placeholder="Kies hierboven of typ zelf">
+              </label>
               <label>Plaats
                 <input type="text" name="plaats" placeholder="Waar ben je nu?">
               </label>
-              <label>Activiteit
-                <input type="text" name="activiteit" list="activiteiten-lijst" placeholder="Laden, pauze, tanken...">
-              </label>
               <label>Km-stand
-                <input type="number" step="1" min="0" name="km_stand">
+                <input type="number" step="1" min="0" name="km_stand" inputmode="numeric">
               </label>
-              <button type="submit" class="knop knop-primair">Aankomst</button>
+              <button type="submit" class="btn primary block">Aankomst melden</button>
             </form>`
         : '';
-
-      const afsluitenForm = bewerkbaar
-        ? `<form method="post" action="${actiePrefix}/opdracht/afsluiten" class="form" style="margin-top:1rem;" onsubmit="return confirm('Deze opdracht afsluiten?')">
-            <div class="form-rij" style="align-items:flex-end;">
+      const afsluiten = bewerkbaar
+        ? `<details class="uitklap">
+            <summary>Opdracht afsluiten</summary>
+            <form method="post" action="${actiePrefix}/opdracht/afsluiten" class="form" data-confirm="Deze opdracht afsluiten?">
               <label>Eindplaats
                 <input type="text" name="eind_plaats" placeholder="Waar sluit je deze opdracht af?">
               </label>
               <label>Kilometerstand bij einde
-                <input type="number" step="1" min="${openOpdracht.start_km || 0}" name="eind_km" required>
+                <input type="number" step="1" min="${openOpdracht.start_km || 0}" name="eind_km" required inputmode="numeric">
               </label>
-            </div>
-            <div class="knoppenrij" style="margin-top:0.75rem;">
-              <button type="submit" class="knop knop-primair">Opdracht afsluiten</button>
-            </div>
-          </form>`
+              <button type="submit" class="btn primary block">Opdracht afsluiten</button>
+            </form>
+          </details>`
         : '';
-
-      huidigeOpdrachtHtml = `
-      <h3>Nu bezig: ${escapeHtml(openOpdracht.klant_naam || 'Geen opdrachtgever')}</h3>
-      ${activiteitDatalistHtml()}
-      ${stopsHtml}
-      ${aankomstVertrekForm}
-      ${afsluitenForm}`;
+      hoofdHtml = `<section class="card dagopdracht">
+        <div class="card-head"><div><div class="stop-label">Huidige opdracht</div><h2 style="margin:2px 0 0">${escapeHtml(openOpdracht.klant_naam || 'Geen opdrachtgever')}</h2></div>
+          <span class="badge badge-onderweg">Bezig sinds ${escapeHtml(openOpdracht.start_tijd || '—')}</span></div>
+        ${activiteitDatalistHtml()}
+        ${dagOverzichtHtml(openOpdracht, dagregels, { bewerkbaar, actiePrefix })}
+        ${actie}
+        ${afsluiten}
+      </section>`;
     } else if (bewerkbaar) {
-      // Geen opdracht meer open: kies verder met een nieuwe opdrachtgever, of
-      // rond de hele dag af.
-      huidigeOpdrachtHtml = `
-      <div class="form-rij" style="align-items:flex-start;flex-wrap:wrap;">
-        <form method="post" action="${actiePrefix}/opdracht/toevoegen" class="form-rij" style="align-items:flex-end;margin:0;">
-          <label>Nieuwe opdrachtgever
+      hoofdHtml = `<div class="grid g2 stack">
+        <form method="post" action="${actiePrefix}/opdracht/toevoegen" class="card form">
+          <h2>Volgende opdracht starten</h2>
+          <label>Opdrachtgever
             <select name="klant_id">
               <option value="">— Kies opdrachtgever —</option>
               ${klanten.map((k) => optie(k.id, k.naam, '')).join('')}
@@ -1490,41 +1601,41 @@ function werkdagBlokHtml(werkdag, opdrachten, totalen, opties) {
             <input type="text" name="start_plaats">
           </label>
           <label>Beginkilometerstand
-            <input type="number" step="1" min="0" name="start_km" required>
+            <input type="number" step="1" min="0" name="start_km" required inputmode="numeric">
           </label>
-          <button type="submit" class="knop">+ Opdracht toevoegen</button>
+          <button type="submit" class="btn primary block">Opdracht starten</button>
         </form>
-        <form method="post" action="${actiePrefix}/dag/afsluiten" class="form-rij" style="align-items:flex-end;margin:0;" onsubmit="return confirm('Dag afsluiten?')">
+        <form method="post" action="${actiePrefix}/dag/afsluiten" class="card form" data-confirm="Dag afsluiten?">
+          <h2>Dag afsluiten</h2>
+          <p class="muted" style="margin:0">Klaar voor vandaag? Sluit de dag af. Je kunt hem daarna nog corrigeren.</p>
           <label>Brandstof verbruikt (liters, hele dag)
-            <input type="number" step="0.1" min="0" name="liters_verbruikt">
+            <input type="number" step="0.1" min="0" name="liters_verbruikt" inputmode="decimal">
           </label>
-          <button type="submit" class="knop knop-primair">Dag afsluiten</button>
+          <button type="submit" class="btn btn-start block">Dag afsluiten</button>
         </form>
       </div>`;
     }
 
+    const eerder = afgeslotenOpdrachten.length
+      ? `<section class="card"><h2>Eerder vandaag</h2>${afgeslotenOpdrachten.map((o) => opdrachtSamenvattingHtml(o, { bewerkbaar, actiePrefix })).join('')}</section>`
+      : '';
+
     const ritnummerForm = bewerkbaar
-      ? `<details class="stop-bewerken" style="margin-top:1rem;">
+      ? `<details class="uitklap licht">
           <summary>Ritnummer / bijzonderheden</summary>
-          <form method="post" action="${actiePrefix}/ritnummer" class="form-rij" style="margin-top:0.5rem;align-items:flex-end;">
+          <form method="post" action="${actiePrefix}/ritnummer" class="form">
             <label>Ritnummer (optioneel)
               <input type="text" name="ritnummer" value="${escapeHtml(werkdag.ritnummer || '')}">
             </label>
-            <label style="flex:1;">Opmerkingen (optioneel)
+            <label>Opmerkingen (optioneel)
               <input type="text" name="opmerkingen" value="${escapeHtml(werkdag.opmerkingen || '')}">
             </label>
-            <button type="submit" class="knop knop-klein">Opslaan</button>
+            <button type="submit" class="btn sm">Opslaan</button>
           </form>
         </details>`
       : '';
 
-    return `
-    <h2 style="margin-top:0;">${kop}</h2>
-    <div class="rit-meta">${opdrachtgevers ? 'Opdrachtgever(s): ' + escapeHtml(opdrachtgevers) + ' · ' : ''}${totalenRegel}</div>
-    ${opgeslagenMelding}
-    ${huidigeOpdrachtHtml}
-    ${afgeslotenHtml}
-    ${ritnummerForm}`;
+    return `${dagKop}${opgeslagenMelding}${hoofdHtml}${eerder}${ritnummerForm}`;
   }
 
   // Dag is niet (meer) live - vandaag maar afgerond, of een historische dag:
@@ -1553,21 +1664,23 @@ export function pagUrenregistratie({
   opgeslagen,
 }) {
   const historieHtml = historie.length
-    ? historie
-        .map(
-          ({ werkdag, kmTotaal, nettoMinuten }) => `<div class="rit-kaart">
-        <div class="rit-meta">${formatDatum(werkdag.datum)}${werkdag.klant_naam ? ' · ' + escapeHtml(werkdag.klant_naam) : ''}</div>
-        <div class="rit-meta">${kmTotaal != null ? kmTotaal + ' km' : '—'} · ${formatMinuten(nettoMinuten)} netto gewerkt</div>
-        <div class="knoppenrij" style="margin-top:0.4rem;"><a href="${actiePrefix}/${werkdag.id}" class="knop knop-klein">Bekijken/corrigeren</a></div>
-      </div>`
-        )
-        .join('')
-    : `<div class="leeg">Geen dagen in de afgelopen 2 weken.</div>`;
+    ? `<section class="card"><div class="rows">${historie
+        .map(({ werkdag, kmTotaal, nettoMinuten }) => {
+          const dd = datumDelen(werkdag.datum);
+          return `<a class="rowitem" href="${actiePrefix}/${werkdag.id}">
+        <div class="datumtegel"><b>${dd.dag}</b><span>${dd.maand}</span></div>
+        <div class="grow"><div class="t">${escapeHtml(werkdag.klant_naam || 'Geen opdrachtgever')}</div>
+          <div class="s">${dd.weekdag} · ${formatMinuten(nettoMinuten)} netto · ${kmTotaal != null ? kmTotaal + ' km' : '— km'}</div></div>
+        <span class="small" style="color:var(--basic)">Bekijken ›</span>
+      </a>`;
+        })
+        .join('')}</div></section>`
+    : `<div class="card"><div class="empty">Geen dagen in de afgelopen 2 weken.</div></div>`;
 
   return `
-<h1>Urenregistratie</h1>
+<div class="pagehead"><div><h1>Urenregistratie</h1><p>${vandaagWerkdag && vandaagWerkdag.status === 'bezig' ? 'Meld per stop je aankomst en vertrek.' : 'Begin je dag zodra je gaat rijden.'}</p></div></div>
 ${fout ? `<div class="melding melding-fout">${escapeHtml(fout)}</div>` : ''}
-<div class="kaart">
+<div class="${vandaagWerkdag && vandaagWerkdag.status === 'bezig' ? 'dagblok' : 'kaart'}">
   ${werkdagBlokHtml(vandaagWerkdag, vandaagOpdrachten, vandaagTotalen, {
     vandaag: true,
     bewerkbaar: true,
@@ -1578,8 +1691,7 @@ ${fout ? `<div class="melding melding-fout">${escapeHtml(fout)}</div>` : ''}
     opgeslagen,
   })}
 </div>
-<h2>Laatste 2 weken</h2>
-<div class="knoppenrij" style="margin-bottom:0.75rem;"><a href="${actiePrefix}/nieuw" class="knop">+ Dag toevoegen</a></div>
+<div class="card-head" style="margin:0"><h2 style="margin:0">Laatste 2 weken</h2><a href="${actiePrefix}/nieuw" class="btn sm">+ Dag toevoegen</a></div>
 ${historieHtml}`;
 }
 

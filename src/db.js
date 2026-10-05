@@ -545,6 +545,42 @@ export function nieuweId() {
   return randomUUID();
 }
 
+// ---- Ritten met meerdere stops (ritopdrachten zoals in de chauffeursapp) ----
+db.exec(`
+CREATE TABLE IF NOT EXISTS rit_stops (
+  id TEXT PRIMARY KEY,
+  rit_id TEXT NOT NULL REFERENCES ritten(id) ON DELETE CASCADE,
+  volgorde INTEGER NOT NULL DEFAULT 0,
+  type TEXT NOT NULL DEFAULT 'laden',
+  naam TEXT,
+  adres TEXT NOT NULL,
+  datum TEXT,
+  tijd_van TEXT,
+  tijd_tot TEXT,
+  opmerking TEXT,
+  status TEXT NOT NULL DEFAULT 'open',
+  afgerond_op TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_rit_stops_rit ON rit_stops(rit_id, volgorde);
+`);
+voegKolomToeIndienNodig('ritten', 'naam', 'TEXT');
+voegKolomToeIndienNodig('ritten', 'start_tijd', 'TEXT');
+voegKolomToeIndienNodig('ritten', 'start_plaats', 'TEXT');
+voegKolomToeIndienNodig('ritten', 'ritnummer', 'INTEGER');
+voegKolomToeIndienNodig('ritten', 'gestart_op', 'TEXT');
+// Oplopend ritnummer (Rit ID) voor ritten die er nog geen hebben.
+{
+  const zonder = db.prepare('SELECT id FROM ritten WHERE ritnummer IS NULL ORDER BY datum, aangemaakt_op').all();
+  if (zonder.length) {
+    let volgend = (db.prepare('SELECT MAX(ritnummer) AS m FROM ritten').get().m || 1000) + 1;
+    const upd = db.prepare('UPDATE ritten SET ritnummer = ? WHERE id = ?');
+    for (const r of zonder) upd.run(volgend++, r.id);
+  }
+}
+export function volgendRitnummer() {
+  return (db.prepare('SELECT MAX(ritnummer) AS m FROM ritten').get().m || 1000) + 1;
+}
+
 // ---- Accounts, functierollen, rechten en inloggen (zelfde opzet als WorkPortal) ----
 db.exec(`
 CREATE TABLE IF NOT EXISTS functierollen (

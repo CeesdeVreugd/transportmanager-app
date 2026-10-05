@@ -107,8 +107,9 @@ function initRitPrijsCalculator() {
   const routeStatus = form.querySelector('[data-route-status]');
   if (berekenRouteKnop) {
     berekenRouteKnop.addEventListener('click', async () => {
-      const ophaal = (form.querySelector('[name="ophaal_adres"]') || {}).value?.trim();
-      const aflever = (form.querySelector('[name="aflever_adres"]') || {}).value?.trim();
+      const stopAdressen = Array.from(form.querySelectorAll('[name="stop_adres"]')).map((el) => el.value.trim()).filter(Boolean);
+      const ophaal = stopAdressen.length ? stopAdressen[0] : (form.querySelector('[name="ophaal_adres"]') || {}).value?.trim();
+      const aflever = stopAdressen.length ? stopAdressen[stopAdressen.length - 1] : (form.querySelector('[name="aflever_adres"]') || {}).value?.trim();
       if (!ophaal || !aflever) {
         if (routeStatus) routeStatus.textContent = 'Vul eerst beide adressen in.';
         return;
@@ -560,7 +561,7 @@ document.addEventListener('DOMContentLoaded', herNummerOpdrachten);
     return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
   }
 
-  // Een nieuwe klant ook in alle andere klantkeuzes (en sjablonen) op de pagina zetten.
+  // Een nieuwe klant ook in alle andere klantkeuzes op de pagina zetten.
   function voegOveralToe(id, naam) {
     const lijsten = [...document.querySelectorAll(SELECTOR)];
     document.querySelectorAll('template').forEach((t) => lijsten.push(...t.content.querySelectorAll(SELECTOR)));
@@ -760,3 +761,53 @@ function maakTabellenMobiel(root) {
   });
 }
 document.addEventListener('DOMContentLoaded', () => maakTabellenMobiel(document));
+
+
+// ---------------------------------------------------------------------------
+// Ritformulier: stops toevoegen, verwijderen en in volgorde zetten.
+// ---------------------------------------------------------------------------
+document.addEventListener('DOMContentLoaded', () => {
+  const lijst = document.querySelector('[data-ritstops]');
+  if (!lijst) return;
+  const sjabloon = document.querySelector('template[data-ritstop-sjabloon]');
+  const nummer = () => lijst.querySelectorAll('[data-ritstop]').forEach((rij, i) => {
+    const nr = rij.querySelector('[data-ritstop-nr]');
+    if (nr) nr.textContent = String(i + 1);
+  });
+  nummer();
+  const knopToevoegen = document.querySelector('[data-ritstop-toevoegen]');
+  if (knopToevoegen && sjabloon) {
+    knopToevoegen.addEventListener('click', () => {
+      lijst.appendChild(sjabloon.content.cloneNode(true));
+      nummer();
+      const nieuw = lijst.lastElementChild && lijst.lastElementChild.querySelector('[name="stop_naam"]');
+      if (nieuw) nieuw.focus();
+    });
+  }
+  lijst.addEventListener('click', (e) => {
+    const rij = e.target.closest('[data-ritstop]');
+    if (!rij) return;
+    if (e.target.closest('[data-ritstop-weg]')) {
+      if (lijst.querySelectorAll('[data-ritstop]').length > 1) rij.remove();
+      else rij.querySelectorAll('input:not([type=hidden])').forEach((el) => (el.value = ''));
+    } else if (e.target.closest('[data-ritstop-op]') && rij.previousElementSibling) {
+      lijst.insertBefore(rij, rij.previousElementSibling);
+    } else if (e.target.closest('[data-ritstop-neer]') && rij.nextElementSibling) {
+      lijst.insertBefore(rij.nextElementSibling, rij);
+    } else return;
+    nummer();
+  });
+});
+
+// Urenregistratie: activiteit kiezen met één tik (vult het veld Activiteit).
+document.addEventListener('click', (e) => {
+  const knop = e.target.closest('[data-zet-activiteit]');
+  if (!knop) return;
+  const form = knop.closest('form');
+  const veld = form && form.querySelector('input[name="activiteit"]');
+  if (!veld) return;
+  veld.value = knop.getAttribute('data-zet-activiteit');
+  form.querySelectorAll('[data-zet-activiteit]').forEach((b) => b.classList.toggle('active', b === knop));
+  const plaats = form.querySelector('input[name="plaats"]');
+  if (plaats && !plaats.value) plaats.focus();
+});
