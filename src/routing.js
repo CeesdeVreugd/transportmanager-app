@@ -109,6 +109,47 @@ export async function geocodeerCoordinaten(adres) {
 }
 
 /**
+ * Zet GPS-coördinaten om naar een plaats/adres (voor de pin-knop "huidige
+ * locatie"). Eerst via OpenRouteService (als ORS_API_KEY is ingesteld),
+ * anders via OpenStreetMap Nominatim. Geeft { plaats, adres } terug.
+ */
+export async function plaatsBijCoordinaten(lat, lon) {
+  if (routeBerekeningActief()) {
+    try {
+      const url = new URL(`${ORS_BASIS}/geocode/reverse`);
+      url.searchParams.set('api_key', ORS_API_KEY);
+      url.searchParams.set('point.lat', String(lat));
+      url.searchParams.set('point.lon', String(lon));
+      url.searchParams.set('size', '1');
+      const resp = await fetchMetTimeout(url, {}, 7000);
+      if (resp.ok) {
+        const p = (await resp.json()).features?.[0]?.properties;
+        if (p) {
+          const plaats = p.locality || p.localadmin || p.county || p.region || '';
+          const straat = p.street ? `${p.street}${p.housenumber ? ' ' + p.housenumber : ''}` : p.name || '';
+          if (plaats || straat) return { plaats: plaats || straat, adres: [straat, [p.postalcode, plaats].filter(Boolean).join(' ')].filter(Boolean).join(', ') };
+        }
+      }
+    } catch {
+      /* val terug op Nominatim */
+    }
+  }
+  const url = new URL('https://nominatim.openstreetmap.org/reverse');
+  url.searchParams.set('format', 'jsonv2');
+  url.searchParams.set('lat', String(lat));
+  url.searchParams.set('lon', String(lon));
+  url.searchParams.set('zoom', '18');
+  url.searchParams.set('accept-language', 'nl');
+  const resp = await fetchMetTimeout(url, { headers: { 'User-Agent': 'TransportManager-DVT/1.0 (devreugd-pt.nl)' } }, 7000);
+  if (!resp.ok) throw new Error('Locatie opzoeken mislukt.');
+  const a = (await resp.json()).address || {};
+  const plaats = a.city || a.town || a.village || a.hamlet || a.municipality || '';
+  const straat = a.road ? `${a.road}${a.house_number ? ' ' + a.house_number : ''}` : a.industrial || '';
+  if (!plaats && !straat) throw new Error('Geen plaats gevonden op deze locatie.');
+  return { plaats: plaats || straat, adres: [straat, [a.postcode, plaats].filter(Boolean).join(' ')].filter(Boolean).join(', ') };
+}
+
+/**
  * Stelt een geoptimaliseerde volgorde voor om een lijst taken (met bekende
  * coördinaten) af te werken, via de OpenRouteService Optimization-API
  * (VROOM). Geeft de taak-id's terug in de voorgestelde volgorde. Vertrekpunt

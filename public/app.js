@@ -811,3 +811,79 @@ document.addEventListener('click', (e) => {
   const plaats = form.querySelector('input[name="plaats"]');
   if (plaats && !plaats.value) plaats.focus();
 });
+
+// ---- Pin-knop "huidige locatie" -------------------------------------------
+// Elk veld met data-locatie krijgt rechts een pin-knopje. Tik → GPS-positie van
+// de telefoon → server zoekt de plaats op → plaats wordt ingevuld.
+(function () {
+  const PIN =
+    '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>';
+
+  function melding(wrap, tekst, fout) {
+    let el = wrap.parentNode.querySelector(':scope > .locatie-melding');
+    if (!el) {
+      el = document.createElement('div');
+      el.className = 'locatie-melding';
+      wrap.insertAdjacentElement('afterend', el);
+    }
+    el.textContent = tekst || '';
+    el.classList.toggle('fout', !!fout);
+    el.hidden = !tekst;
+  }
+
+  function haalLocatie(input, knop, wrap) {
+    if (!('geolocation' in navigator) || !window.isSecureContext) {
+      melding(wrap, 'Locatie bepalen kan alleen via de beveiligde (https) app.', true);
+      return;
+    }
+    knop.classList.add('bezig');
+    knop.disabled = true;
+    melding(wrap, 'Locatie bepalen…');
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          const { latitude, longitude } = pos.coords;
+          const r = await fetch(`/chauffeur/locatie?lat=${latitude.toFixed(6)}&lon=${longitude.toFixed(6)}`, { credentials: 'same-origin' });
+          const data = await r.json().catch(() => ({}));
+          if (!r.ok || !data.plaats) throw new Error(data.fout || 'Locatie opzoeken mislukt.');
+          input.value = data.plaats;
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+          melding(wrap, data.adres && data.adres !== data.plaats ? data.adres : '');
+        } catch (e) {
+          melding(wrap, e.message || 'Locatie opzoeken mislukt. Typ de plaats zelf in.', true);
+        } finally {
+          knop.classList.remove('bezig');
+          knop.disabled = false;
+        }
+      },
+      (err) => {
+        knop.classList.remove('bezig');
+        knop.disabled = false;
+        const teksten = {
+          1: 'Geen toestemming voor je locatie. Zet locatie aan voor deze app in de instellingen van je telefoon/browser.',
+          2: 'Je locatie kon niet worden bepaald. Staat GPS/locatie aan?',
+          3: 'Het duurde te lang om je locatie te bepalen. Probeer het nog eens.',
+        };
+        melding(wrap, teksten[err.code] || 'Locatie bepalen mislukt.', true);
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }
+    );
+  }
+
+  document.querySelectorAll('input[data-locatie]').forEach((input) => {
+    if (input.closest('.locatie-veld')) return;
+    const wrap = document.createElement('span');
+    wrap.className = 'locatie-veld';
+    input.parentNode.insertBefore(wrap, input);
+    wrap.appendChild(input);
+    const knop = document.createElement('button');
+    knop.type = 'button';
+    knop.className = 'locatie-knop';
+    knop.title = 'Huidige locatie invullen';
+    knop.setAttribute('aria-label', 'Huidige locatie invullen');
+    knop.innerHTML = PIN;
+    wrap.appendChild(knop);
+    knop.addEventListener('click', () => haalLocatie(input, knop, wrap));
+  });
+})();

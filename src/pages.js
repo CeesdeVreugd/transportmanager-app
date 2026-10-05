@@ -1491,7 +1491,7 @@ function werkdagBlokHtml(werkdag, opdrachten, totalen, opties) {
     <h2 style="margin-top:0;">Nieuwe dag beginnen</h2>
     <form method="post" action="${actiePrefix}/dag/starten" class="form">
       <label>Beginplaats
-        <input type="text" name="start_plaats" value="${escapeHtml(standaardBeginplaats || '')}" placeholder="Waar begin je?">
+        <input type="text" data-locatie name="start_plaats" value="${escapeHtml(standaardBeginplaats || '')}" placeholder="Waar begin je?">
       </label>
       <label>Kilometerstand bij vertrek
         <input type="number" step="1" min="0" name="start_km" required>
@@ -1557,7 +1557,7 @@ function werkdagBlokHtml(werkdag, opdrachten, totalen, opties) {
                 <input type="text" name="activiteit" list="activiteiten-lijst" placeholder="Kies hierboven of typ zelf">
               </label>
               <label>Plaats
-                <input type="text" name="plaats" placeholder="Waar ben je nu?">
+                <input type="text" data-locatie name="plaats" placeholder="Waar ben je nu?">
               </label>
               <label>Km-stand
                 <input type="number" step="1" min="0" name="km_stand" inputmode="numeric">
@@ -1570,7 +1570,7 @@ function werkdagBlokHtml(werkdag, opdrachten, totalen, opties) {
             <summary>Opdracht afsluiten</summary>
             <form method="post" action="${actiePrefix}/opdracht/afsluiten" class="form" data-confirm="Deze opdracht afsluiten?">
               <label>Eindplaats
-                <input type="text" name="eind_plaats" placeholder="Waar sluit je deze opdracht af?">
+                <input type="text" data-locatie name="eind_plaats" placeholder="Waar sluit je deze opdracht af?">
               </label>
               <label>Kilometerstand bij einde
                 <input type="number" step="1" min="${openOpdracht.start_km || 0}" name="eind_km" required inputmode="numeric">
@@ -1598,7 +1598,7 @@ function werkdagBlokHtml(werkdag, opdrachten, totalen, opties) {
             </select>
           </label>
           <label>Beginplaats
-            <input type="text" name="start_plaats">
+            <input type="text" data-locatie name="start_plaats">
           </label>
           <label>Beginkilometerstand
             <input type="number" step="1" min="0" name="start_km" required inputmode="numeric">

@@ -9,7 +9,7 @@ import { kan, vereisteVoorPad, synchroniseerRolKolom } from './rechten.js';
 import { behandelBeheer, beheerTabs } from './beheer.js';
 import { layout, escapeHtml, APP_VERSIE } from './render.js';
 import branding from './branding.js';
-import { berekenAfstandKm, routeBerekeningActief } from './routing.js';
+import { berekenAfstandKm, routeBerekeningActief, plaatsBijCoordinaten } from './routing.js';
 import { leesMultipart } from './multipart.js';
 import { slaBestandOp, bestandPad, bestandBestaat } from './opslag.js';
 import { emailNotificatiesActief, stuurKlantEmail } from './email.js';
@@ -2960,6 +2960,20 @@ const server = http.createServer(async (req, res) => {
       }
 
       // ---- Ritopdrachten ----
+      // Pin-knop "huidige locatie": GPS-coördinaten → plaats/adres.
+      if (methode === 'GET' && pathname === '/chauffeur/locatie') {
+        const lat = Number(url.searchParams.get('lat'));
+        const lon = Number(url.searchParams.get('lon'));
+        if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+          return stuurJson(res, 400, { fout: 'Ongeldige locatie.' });
+        }
+        try {
+          return stuurJson(res, 200, await plaatsBijCoordinaten(lat, lon));
+        } catch (fout) {
+          return stuurJson(res, 502, { fout: fout.message || 'Locatie opzoeken mislukt.' });
+        }
+      }
+
       if (methode === 'GET' && pathname === '/chauffeur/ritopdrachten') {
         const ritten = haalRittenVoorChauffeur(gebruiker.id).map((r) => {
           if (r.status === 'onderweg') maakStopsEchtIndienNodig(r);
