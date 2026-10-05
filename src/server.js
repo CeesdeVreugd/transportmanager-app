@@ -2163,6 +2163,20 @@ const server = http.createServer(async (req, res) => {
         return stuurHtml(res, 200, layout({ titel: 'Klanten', actief: 'klanten', gebruiker, inhoud: pagKlanten({ klanten }) }));
       }
 
+      // Snel een klant aanmaken vanuit het zoekveld bij "Klant / Opdrachtgever"
+      // (recht Bewerken op Relaties, gecontroleerd via de module "relaties").
+      if (methode === 'POST' && pathname === '/planner/klanten/snel') {
+        const v = await leesJson(req).catch(() => ({}));
+        const naam = String(v.naam || '').trim().slice(0, 120);
+        if (!naam) return stuurJson(res, 400, { fout: 'Vul een naam in.' });
+        const bestaand = db.prepare('SELECT id, naam FROM klanten WHERE lower(naam) = lower(?)').get(naam);
+        if (bestaand) return stuurJson(res, 200, { id: bestaand.id, naam: bestaand.naam, bestond: true });
+        const id = nieuweId();
+        db.prepare('INSERT INTO klanten (id, naam, type) VALUES (?, ?, ?)').run(id, naam, v.type === 'transporteur' ? 'transporteur' : 'klant');
+        logActie(gebruiker, 'Klant aangemaakt', 'klant', id, naam);
+        return stuurJson(res, 201, { id, naam });
+      }
+
       if (methode === 'POST' && pathname === '/planner/klanten/nieuw') {
         const v = await leesFormulier(req);
         const klanten = haalKlantenMetTariefAantal();

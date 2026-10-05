@@ -37,17 +37,17 @@ function opschonenOudeBackups() {
  */
 export function maakBackup() {
   zorgVoorBackupMap();
-  try {
-    db.exec('PRAGMA wal_checkpoint(TRUNCATE);');
-  } catch (fout) {
-    console.error('Wal-checkpoint mislukt vóór back-up (back-up gaat toch door):', fout.message);
-  }
   if (!fs.existsSync(DB_PATH)) return null;
 
   const tijdstip = new Date().toISOString().replace(/[:.]/g, '-');
   const bestandsnaam = `transport-backup-${tijdstip}.db`;
   const doelPad = path.join(BACKUPS_DIR, bestandsnaam);
-  fs.copyFileSync(DB_PATH, doelPad);
+  // Kopie via SQLite zelf (VACUUM INTO): altijd consistent, inclusief de nog
+  // niet weggeschreven wijzigingen. Bewust GEEN fs.copyFileSync op het
+  // databasebestand: het openen/sluiten van dat bestand laat op Linux de
+  // SQLite-vergrendeling van dit proces los, waarna een ander proces (bijv.
+  // sqlite3 in de Portainer-console) het WAL-bestand kan weggooien.
+  db.exec(`VACUUM INTO '${doelPad.replace(/'/g, "''")}'`);
   const grootte = fs.statSync(doelPad).size;
 
   const id = nieuweId();

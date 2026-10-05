@@ -12,7 +12,7 @@ setlocal
 
 set "DOEL=C:\1 Automatiserings projecten\DeVreugdTransport\TransportManager-App\TransportManager"
 set "REPO=https://github.com/CeesdeVreugd/transportmanager-app.git"
-set "OMSCHRIJVING=Transport Manager V3: gebruiker verwijderen (e-mailadres weer vrij, ritten en uren blijven bewaard)"
+set "OMSCHRIJVING=Transport Manager V4: klant zoeken en direct aanmaken bij het kiezen van een opdrachtgever; veilige database-back-up (VACUUM INTO)"
 
 echo.
 echo ============================================

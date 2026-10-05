@@ -1,6 +1,6 @@
 # Transport Manager — De Vreugd Transport
 
-Versie 3 (3.0.0) · Node.js 22 · SQLite (`node:sqlite`) · Docker / Portainer
+Versie 4 (4.0.0) · Node.js 22 · SQLite (`node:sqlite`) · Docker / Portainer
 
 Huisstijl, inloggen en beheer zijn gelijk aan **WorkPortal** (De Vreugd
 Productietechniek), met "Transport" in het logo en zonder payoff.
@@ -25,8 +25,8 @@ TransportManager-App\
 ├── 1 Info\
 ├── 2 Oude versie's\
 ├── TransportManager\              <- hostmap = git-kopie van GitHub (niet zelf in werken)
-├── transportmanager-app-V3.zip
-└── transportmanager-app-V3\       <- uitgepakte zip (bestanden staan direct in de root)
+├── transportmanager-app-V4.zip
+└── transportmanager-app-V4\       <- uitgepakte zip (bestanden staan direct in de root)
     ├── publiceren.cmd             <- naar GitHub publiceren
     ├── Dockerfile
     ├── docker-compose.yml         <- stack voor Portainer
@@ -207,6 +207,16 @@ de tabbladen Gebruikers (met apparaten afmelden), Instellingen (verifiëren,
 vergrendelen, pincodelengte, testmail, status koppelingen), Back-ups en
 Logboek.
 
+## Klant zoeken en direct aanmaken
+
+Overal waar een klant / opdrachtgever gekozen wordt (rit, sjabloon,
+urenregistratie, dagstaat) staat een zoekveld: typ een deel van de naam en
+kies. Wie het recht **Bewerken op Relaties** heeft (standaard Directie,
+Planning, Administratie en beheerders), ziet onderaan de lijst
+*+ Nieuwe klant "…" aanmaken*: de klant wordt meteen aangemaakt en gekozen.
+Adres, contactgegevens en tariefafspraken vul je later aan bij Klanten.
+Chauffeurs kunnen wel zoeken, maar geen klanten aanmaken.
+
 ## Wat de app allemaal doet
 
 **Planner (menu links, in groepen):**
@@ -372,6 +382,15 @@ nodig, geen client secret):
 
 Zonder deze stappen blijft alles gewoon werken — lokale back-ups (en
 downloaden) blijven altijd beschikbaar, ook zonder OneDrive.
+
+## VAPID-sleutels en ORS_API_KEY overnemen
+
+Neem beide over uit de oude omgeving (Railway → service → **Variables**):
+`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, (`VAPID_CONTACT_EMAIL`) en
+`ORS_API_KEY`. Zet ze in Portainer bij de stack `transportmanager-app` →
+*Update the stack*. Controle: Beheer → Instellingen → Pushmeldingen en
+Routeberekening staan op *Ingesteld*. De routeberekening gebruikt het
+vrachtwagenprofiel van OpenRouteService (`driving-hgv`, heel Europa).
 
 ## Pushmeldingen instellen
 

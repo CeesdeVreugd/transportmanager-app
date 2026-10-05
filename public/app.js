@@ -460,3 +460,161 @@ document.addEventListener('click', (event) => {
 });
 
 document.addEventListener('DOMContentLoaded', herNummerOpdrachten);
+
+// ---------------------------------------------------------------------------
+// Zoekveld bij het kiezen van een klant / opdrachtgever. Het gewone
+// keuzemenu blijft (verborgen) bestaan voor het formulier; daaroverheen komt
+// een zoekveld met een lijst. Wie klanten mag bewerken (meta
+// tm-klant-aanmaken), kan vanuit dezelfde lijst direct een nieuwe klant
+// aanmaken. Werkt ook voor opdrachtblokken die later worden toegevoegd.
+// ---------------------------------------------------------------------------
+(function () {
+  const SELECTOR = 'select[name="klant_id"], select[name="opdracht_klant_id"]';
+  const magAanmaken = !!document.querySelector('meta[name="tm-klant-aanmaken"]');
+  const verwerkt = new WeakSet();
+
+  function esc(s) {
+    return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  }
+  function normaal(s) {
+    return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  }
+
+  // Een nieuwe klant ook in alle andere klantkeuzes (en sjablonen) op de pagina zetten.
+  function voegOveralToe(id, naam) {
+    const lijsten = [...document.querySelectorAll(SELECTOR)];
+    document.querySelectorAll('template').forEach((t) => lijsten.push(...t.content.querySelectorAll(SELECTOR)));
+    lijsten.forEach((sel) => {
+      if (![...sel.options].some((o) => o.value === id)) {
+        const opt = new Option(naam, id);
+        const na = [...sel.options].find((o) => o.value && o.text.localeCompare(naam, 'nl') > 0);
+        sel.insertBefore(opt, na || null);
+      }
+    });
+  }
+
+  function verbeter(select) {
+    if (verwerkt.has(select) || select.closest('template')) return;
+    verwerkt.add(select);
+    select.style.display = 'none';
+
+    const wrap = document.createElement('div');
+    wrap.className = 'klantzoek';
+    wrap.innerHTML =
+      '<div class="search klantzoek-veld"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>' +
+      '<input type="text" autocomplete="off" role="combobox" aria-expanded="false"></div>' +
+      '<div class="klantzoek-lijst" role="listbox" hidden></div>';
+    select.insertAdjacentElement('afterend', wrap);
+    const invoer = wrap.querySelector('input');
+    const lijst = wrap.querySelector('.klantzoek-lijst');
+    const leegOptie = [...select.options].find((o) => !o.value);
+    invoer.placeholder = magAanmaken ? 'Zoek of maak een klant…' : 'Zoek een klant…';
+    let actiefIndex = -1;
+    let items = [];
+
+    function toonGekozen() {
+      const o = select.options[select.selectedIndex];
+      invoer.value = o && o.value ? o.text : '';
+    }
+    function sluit() {
+      lijst.hidden = true;
+      invoer.setAttribute('aria-expanded', 'false');
+      toonGekozen();
+    }
+    function kies(waarde) {
+      select.value = waarde;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      sluit();
+    }
+    function bouw() {
+      const q = normaal(invoer.value.trim());
+      const opties = [...select.options].filter((o) => o.value);
+      const gevonden = q ? opties.filter((o) => normaal(o.text).includes(q)) : opties;
+      items = [];
+      let html = '';
+      if (leegOptie && !q) {
+        items.push({ type: 'kies', waarde: '' });
+        html += `<div class="klantzoek-item geen" data-i="0">${esc(leegOptie.text)}</div>`;
+      }
+      gevonden.slice(0, 50).forEach((o) => {
+        items.push({ type: 'kies', waarde: o.value });
+        html += `<div class="klantzoek-item${o.value === select.value ? ' gekozen' : ''}" data-i="${items.length - 1}">${esc(o.text)}</div>`;
+      });
+      if (!gevonden.length && q) html += '<div class="klantzoek-niets">Geen klant gevonden.</div>';
+      const exact = opties.some((o) => normaal(o.text) === q);
+      if (magAanmaken && q && !exact) {
+        items.push({ type: 'nieuw', naam: invoer.value.trim() });
+        html += `<div class="klantzoek-item nieuw" data-i="${items.length - 1}">+ Nieuwe klant “${esc(invoer.value.trim())}” aanmaken</div>`;
+      }
+      lijst.innerHTML = html;
+      actiefIndex = -1;
+      lijst.hidden = false;
+      invoer.setAttribute('aria-expanded', 'true');
+    }
+    function markeer() {
+      lijst.querySelectorAll('.klantzoek-item').forEach((el) => el.classList.toggle('actief', Number(el.dataset.i) === actiefIndex));
+      const el = lijst.querySelector(`.klantzoek-item[data-i="${actiefIndex}"]`);
+      if (el) el.scrollIntoView({ block: 'nearest' });
+    }
+    async function maakAan(naam) {
+      const knop = lijst.querySelector('.klantzoek-item.nieuw');
+      if (knop) knop.textContent = 'Bezig met aanmaken…';
+      try {
+        const resp = await fetch('/planner/klanten/snel', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ naam }),
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok || !data.id) throw new Error(data.fout || 'Aanmaken mislukt.');
+        voegOveralToe(data.id, data.naam);
+        kies(data.id);
+      } catch (fout) {
+        if (knop) knop.textContent = fout.message || 'Aanmaken mislukt.';
+      }
+    }
+    function voerUit(item) {
+      if (!item) return;
+      if (item.type === 'nieuw') maakAan(item.naam);
+      else kies(item.waarde);
+    }
+
+    invoer.addEventListener('focus', () => {
+      invoer.select();
+      bouw();
+    });
+    invoer.addEventListener('input', bouw);
+    invoer.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown') { e.preventDefault(); if (lijst.hidden) bouw(); actiefIndex = Math.min(items.length - 1, actiefIndex + 1); markeer(); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); actiefIndex = Math.max(0, actiefIndex - 1); markeer(); }
+      else if (e.key === 'Enter') {
+        if (!lijst.hidden) {
+          e.preventDefault();
+          voerUit(items[actiefIndex >= 0 ? actiefIndex : items.findIndex((i) => i.type === 'kies' && i.waarde) >= 0 ? items.findIndex((i) => i.type === 'kies' && i.waarde) : 0]);
+        }
+      } else if (e.key === 'Escape') sluit();
+    });
+    lijst.addEventListener('mousedown', (e) => {
+      const el = e.target.closest('.klantzoek-item');
+      if (!el) return;
+      e.preventDefault(); // focus in het zoekveld houden
+      voerUit(items[Number(el.dataset.i)]);
+    });
+    invoer.addEventListener('blur', () => setTimeout(() => { if (!wrap.contains(document.activeElement)) sluit(); }, 120));
+    select.addEventListener('change', toonGekozen);
+    toonGekozen();
+  }
+
+  function verbeterAlles(root) {
+    (root.querySelectorAll ? root : document).querySelectorAll(SELECTOR).forEach(verbeter);
+    if (root.matches && root.matches(SELECTOR)) verbeter(root);
+  }
+  document.addEventListener('DOMContentLoaded', () => {
+    verbeterAlles(document);
+    new MutationObserver((mut) => mut.forEach((m) => m.addedNodes.forEach((n) => n.nodeType === 1 && verbeterAlles(n)))).observe(document.body, {
+      childList: true,
+      subtree: true,
+    });
+  });
+})();
